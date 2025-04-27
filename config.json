@@ -1,0 +1,19 @@
+{
+    "language": "es",
+    "theme": "darkly",
+    "codec": "mp3",
+    "bitrate": "192",
+    "bit_depth": "16",
+    "sample_rate": "48000",
+    "channels": "stereo",
+    "normalization": "off",
+    "custom_lufs_i": "-14",
+    "custom_lufs_lra": "11",
+    "custom_lufs_tp": "-1.5",
+    "extract_audio": true,
+    "metadata": true,
+    "extract_thumbnail": false,
+    "keep_original": false,
+    "dynamic_compression": false,
+    "music_folder": "C:/Users/Mateo/Downloads/downloads"
+}
