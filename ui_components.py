@@ -281,6 +281,13 @@ def create_audio_options_tab(app):
     # Initial check to hide if not custom
     update_normalization_visibility()
 
+    # Reset button
+    reset_button = ttk.Button(app.quality_frame, text=TRANSLATIONS[lang]['reset_button'], 
+                             command=lambda: app.reset_to_defaults(scope="audio"), 
+                             bootstyle=WARNING)
+    reset_button.pack(pady=10)
+    app.widget_translation_keys[str(id(reset_button))] = 'reset_button'
+
     logging.debug("Completed creation of audio options tab")
     return audio_tab
 
@@ -353,7 +360,6 @@ def create_options_tab(app):
     def on_theme_select(event):
         selected_display = theme_combobox.get()
         logging.debug(f"Theme selected: {selected_display}")
-        # Map display value back to theme code
         for theme, translations in theme_map.items():
             if selected_display in translations.values():
                 app.theme_var.set(theme)
@@ -380,6 +386,13 @@ def create_options_tab(app):
     # Destination folder
     create_destination_display(main_frame, app, editable=True)
 
+    # Reset button
+    reset_button = ttk.Button(main_frame, text=TRANSLATIONS[lang]['reset_button'], 
+                             command=lambda: app.reset_to_defaults(scope="general"), 
+                             bootstyle=WARNING)
+    reset_button.pack(pady=10)
+    app.widget_translation_keys[str(id(reset_button))] = 'reset_button'
+
     return options_tab
 
 def create_destination_display(parent, app, editable=False):
@@ -399,18 +412,27 @@ def create_destination_display(parent, app, editable=False):
         def select_folder():
             folder = filedialog.askdirectory(initialdir=app.music_folder_var.get(), title=TRANSLATIONS[lang]['destination'].split(":")[0])
             if folder:
-                app.music_folder_var.set(folder)  # Actualiza la variable
-                app.save_config()  # Guarda la configuración
+                app.update_destination_folder(folder)  # Llama al método para actualizar la carpeta
 
         select_folder_button = ttk.Button(destination_frame, text="📁", command=select_folder, width=3, bootstyle=SECONDARY)
         select_folder_button.pack(side="right", padx=5)
     else:
         # Etiqueta estática para mostrar la carpeta de destino
-        destination_label = ttk.Label(destination_frame, text=TRANSLATIONS[lang]['destination'].format(app.music_folder_var.get()), wraplength=400, font=('Segoe UI', 10), anchor="center")
+        destination_label = ttk.Label(destination_frame, textvariable=app.music_folder_var, wraplength=400, font=('Segoe UI', 10), anchor="center")
         destination_label.pack(side="top", padx=5, fill="x", expand=True)
-        app.widget_translation_keys[str(id(destination_label))] = 'destination'
 
     return destination_frame
+
+def update_destination_labels(self):
+    """Actualiza las etiquetas de destino en todas las pestañas."""
+    lang = self.language_var.get()
+    new_destination = self.music_folder_var.get()
+
+    # Actualizar etiquetas en las pestañas
+    for tab in [self.search_tab, self.songs_tab, self.playlist_tab]:
+        for widget in tab.winfo_children():
+            if isinstance(widget, ttk.Label) and 'destination' in self.widget_translation_keys.get(str(id(widget)), ''):
+                widget.config(text=TRANSLATIONS[lang]['destination'].format(new_destination))
 
 def create_about_tab(app):
     """Crea la pestaña de información (About)."""

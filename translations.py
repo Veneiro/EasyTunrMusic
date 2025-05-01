@@ -87,6 +87,7 @@ TRANSLATIONS = {
             "Enter: Ejecutar acción principal en la pestaña activa"
         ),
         'about_copyright': '© 2025 Veneiro. Todos los derechos reservados.',
+        'reset_button': 'Restablecer Predeterminados',
     },
     'en': {
         'title': 'EasyTunrMusic',
@@ -176,5 +177,6 @@ TRANSLATIONS = {
             "Enter: Execute main action in the active tab"
         ),
         'about_copyright': '© 2025 Veneiro. All rights reserved.',
+        'reset_button': 'Reset to Defaults',
     }
 }

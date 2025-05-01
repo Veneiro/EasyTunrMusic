@@ -19,6 +19,27 @@ import sys
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DownloaderApp:
+    # Valores predeterminados para la configuración
+    DEFAULT_CONFIG = {
+        "language": "es",
+        "theme": "litera",
+        "threads": "4",
+        "music_folder": None,  # Se establecerá dinámicamente en __init__ usando script_dir
+        "codec": "mp3",
+        "bitrate": "192",
+        "bit_depth": "16",
+        "sample_rate": "44100",
+        "channels": "stereo",
+        "normalization": "off",
+        "custom_lufs_i": "-14",
+        "custom_lufs_lra": "11",
+        "custom_lufs_tp": "-1.5",
+        "extract_audio": True,
+        "metadata": True,
+        "extract_thumbnail": False,
+        "keep_original": False,
+        "dynamic_compression": False,
+    }
     def __init__(self, root):
         self.root = root
 
@@ -45,7 +66,7 @@ class DownloaderApp:
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.resizable(False, False)
 
-        # Inicializar script_dir antes de cargar la configuración
+        # Inicializar script_dir
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Crear un directorio persistente para la configuración
@@ -53,9 +74,20 @@ class DownloaderApp:
         if not os.path.exists(self.config_dir):
             os.makedirs(self.config_dir)
         
+        # Initialize music folder and linked variable *before* loading config
+        self.music_folder = os.path.join(self.script_dir, "Música")
+        self.music_folder_var = tk.StringVar(value=self.music_folder)
+        self.DEFAULT_CONFIG["music_folder"] = self.music_folder
+        
         # Load configuration
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.load_config()
+
+        # Update music folder from config (if available)
+        self.music_folder = self.config.get("music_folder", os.path.join(self.script_dir, "Música"))
+        self.music_folder_var.set(self.music_folder)
+        if not os.path.exists(self.music_folder):
+            os.makedirs(self.music_folder)
 
         # Map legacy language names to codes
         self.language_map = {
@@ -82,8 +114,8 @@ class DownloaderApp:
 
         # Spinner de carga
         self.loading_spinner = ttk.Progressbar(self.root, mode='indeterminate', bootstyle=INFO)
-        self.loading_spinner.place(relx=0.5, rely=0.5, anchor='center')  # Centra el spinner en la ventana
-        self.loading_spinner.lower()  # Ocúltalo inicialmente
+        self.loading_spinner.place(relx=0.5, rely=0.5, anchor='center')
+        self.loading_spinner.lower()
 
         # Initialize other variables
         self.search_query_var = tk.StringVar()
@@ -123,13 +155,6 @@ class DownloaderApp:
         self.custom_norm_frame_visible = False
         self.progress_window = None
         self.widget_translation_keys = {}
-
-        # Destination folder
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.music_folder = os.path.join(self.script_dir, "Música")
-        self.music_folder_var = tk.StringVar(value=self.music_folder)
-        if not os.path.exists(self.music_folder):
-            os.makedirs(self.music_folder)
 
         # Configure styles
         self.style.configure('TNotebook', background=self.style.colors.bg, tabmargins=(10, 10, 0, 0))
@@ -188,7 +213,7 @@ class DownloaderApp:
         self.update_norm_options()
 
         # Initial language and theme update
-        self.update_theme()  # Apply the loaded theme
+        self.update_theme()
         self.update_language()
 
         # Añadir shortcuts
@@ -196,6 +221,45 @@ class DownloaderApp:
 
         # Asociar la tecla Enter con la función correspondiente
         self.root.bind("<Return>", self.handle_enter_key)
+
+    def reset_to_defaults(self, scope="all"):
+        """Restaura la configuración a los valores predeterminados."""
+        logging.debug(f"Resetting configuration to defaults (scope: {scope})")
+        
+        if scope in ["all", "general"]:
+            self.language_var.set(self.DEFAULT_CONFIG["language"])
+            self.theme_var.set(self.DEFAULT_CONFIG["theme"])
+            self.threads_var.set(self.DEFAULT_CONFIG["threads"])
+            self.music_folder_var.set(self.DEFAULT_CONFIG["music_folder"])
+            self.music_folder = self.DEFAULT_CONFIG["music_folder"]
+            if not os.path.exists(self.music_folder):
+                os.makedirs(self.music_folder)
+
+        if scope in ["all", "audio"]:
+            self.codec_var.set(self.DEFAULT_CONFIG["codec"])
+            self.bitrate_var.set(self.DEFAULT_CONFIG["bitrate"])
+            self.bit_depth_var.set(self.DEFAULT_CONFIG["bit_depth"])
+            self.sample_rate_var.set(self.DEFAULT_CONFIG["sample_rate"])
+            self.channels_var.set(self.DEFAULT_CONFIG["channels"])
+            self.normalization_var.set(self.DEFAULT_CONFIG["normalization"])
+            self.custom_lufs_i_var.set(self.DEFAULT_CONFIG["custom_lufs_i"])
+            self.custom_lufs_lra_var.set(self.DEFAULT_CONFIG["custom_lufs_lra"])
+            self.custom_lufs_tp_var.set(self.DEFAULT_CONFIG["custom_lufs_tp"])
+            self.extract_audio_var.set(self.DEFAULT_CONFIG["extract_audio"])
+            self.metadata_var.set(self.DEFAULT_CONFIG["metadata"])
+            self.extract_thumbnail_var.set(self.DEFAULT_CONFIG["extract_thumbnail"])
+            self.keep_original_var.set(self.DEFAULT_CONFIG["keep_original"])
+            self.dynamic_compression_var.set(self.DEFAULT_CONFIG["dynamic_compression"])
+
+        # Actualizar la interfaz
+        self.update_language()
+        self.update_theme()
+        self.update_codec_options()
+        self.update_norm_options()
+
+        # Guardar la configuración restaurada
+        self.save_config()
+        logging.debug("Configuration reset and saved")
 
     def handle_enter_key(self, event):
         """Handle the Enter key based on the active tab."""
@@ -252,19 +316,20 @@ class DownloaderApp:
         self.config = {}
         try:
             if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, "r", encoding="utf-8") as f:
                     self.config = json.load(f)
         except Exception as e:
-            logging.error(f"Failed to load config: {e}")
-        logging.debug(f"Loaded config: {self.config}")
-    
-        # Cargar carpeta de música
-        self.music_folder = self.config.get("music_folder", os.path.join(self.script_dir, "Música"))
+            logging.error(f"Error loading config: {e}")
+        
+        # Load music folder from configuration
+        default_music_folder = os.path.join(self.script_dir, "Música")
+        self.music_folder = self.config.get("music_folder", default_music_folder)
+        self.music_folder_var.set(self.music_folder)  # Error: music_folder_var doesn't exist yet
         if not os.path.exists(self.music_folder):
             os.makedirs(self.music_folder)
 
     def save_config(self):
-        """Save configuration to config.json."""
+        """Guarda la configuración en config.json."""
         self.config.update({
             "language": self.language_var.get(),
             "theme": self.theme_var.get(),
@@ -282,51 +347,47 @@ class DownloaderApp:
             "extract_thumbnail": self.extract_thumbnail_var.get(),
             "keep_original": self.keep_original_var.get(),
             "dynamic_compression": self.dynamic_compression_var.get(),
-            "music_folder": self.music_folder,  # Guardar la carpeta seleccionada
+            "music_folder": self.music_folder_var.get(),  # Guardar la carpeta de destino
         })
         try:
-            with open(self.config_file, 'w') as f:
-                json.dump(self.config, f, indent=4)
-            logging.debug(f"Saved config: {self.config}")
+            with open(self.config_file, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            logging.error(f"Failed to save config: {e}")
+            logging.error(f"Error saving config: {e}")
 
     def update_language(self):
-        """Update interface texts and styles based on language."""
+        """Actualiza los textos de la interfaz y estilos según el idioma."""
         lang = self.language_var.get()
         logging.debug(f"Updating language to: {lang}")
         if lang not in TRANSLATIONS:
             logging.error(f"Language {lang} not found in TRANSLATIONS, defaulting to 'es'")
             lang = 'es'
             self.language_var.set(lang)
-
+    
         self.root.title(TRANSLATIONS[lang]['title'])
-        
-        # Update tab titles
+    
+        # Actualizar títulos de las pestañas
         self.notebook.tab(self.search_tab, text=TRANSLATIONS[lang]['search_tab'])
         self.notebook.tab(self.songs_tab, text=TRANSLATIONS[lang]['songs_tab'])
         self.notebook.tab(self.playlist_tab, text=TRANSLATIONS[lang]['playlist_tab'])
         self.notebook.tab(self.audio_tab, text=TRANSLATIONS[lang]['audio_tab'])
         self.notebook.tab(self.options_tab, text=TRANSLATIONS[lang]['options_tab'])
         self.notebook.tab(self.about_tab, text=TRANSLATIONS[lang]['about_tab'])
-        
-        # Update widget texts
+    
+        # Actualizar textos de los widgets
         self._update_widget_text(self.search_tab, lang)
         self._update_widget_text(self.songs_tab, lang)
         self._update_widget_text(self.playlist_tab, lang)
         self._update_widget_text(self.audio_tab, lang)
         self._update_widget_text(self.options_tab, lang)
         self._update_widget_text(self.about_tab, lang)
-        
-        # Update status labels
+    
+        # Actualizar etiquetas de estado
         self.search_status_label.config(text=TRANSLATIONS[lang]['status_waiting_search'])
         self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs'])
         self.playlist_status_label.config(text=TRANSLATIONS[lang]['status_waiting_playlist'])
-        
-        if self.progress_window:
-            self.show_result_message(self.progress_window.title().lower(), self.progress_status_label.cget('text'))
-        
-        # Reapply theme to ensure consistency
+    
+        # Reaplicar tema para garantizar consistencia
         self.update_theme()
 
     def _update_widget_text(self, widget, lang):
@@ -399,7 +460,18 @@ class DownloaderApp:
         if isinstance(widget, (tk.Frame, ttk.Frame)):  # Recurse into frames
             for child in widget.winfo_children():
                 self._update_widget_style(child)
-                
+
+    def update_destination_folder(self, new_folder):
+        """Actualiza la carpeta de destino y guarda la configuración."""
+        if new_folder:  # Solo actualizar si se proporciona una nueva carpeta
+            self.music_folder_var.set(new_folder)
+            self.music_folder = new_folder
+            if not os.path.exists(new_folder):
+                os.makedirs(new_folder)
+            # Actualizar la configuración y guardarla
+            self.config["music_folder"] = new_folder
+            self.save_config()
+
     def create_progress_window(self, num_videos):
         """Create floating window for progress bars."""
         self.progress_window = tk.Toplevel(self.root)
@@ -723,10 +795,12 @@ class DownloaderApp:
         self.update_quality_frame()
 
     def update_quality_frame(self, *args):
+        """Actualiza la visibilidad y sincronización de las opciones de calidad de audio."""
         has_search_songs = len(self.search_song_urls) > 0
         has_songs = len(self.song_urls) > 0
         has_playlist = self.playlist_url_var.get().strip()
         has_search = len(self.search_results) > 0
+    
         if (has_search_songs or has_songs or has_playlist or has_search) and not self.quality_frame_visible:
             logging.debug("Packing quality_frame in audio_tab")
             self.quality_frame.pack(fill='x', pady=10, padx=10)
@@ -743,6 +817,20 @@ class DownloaderApp:
             self.lossless_frame_visible = False
             self.custom_norm_frame_visible = False
             self.quality_frame_visible = False
+    
+        # Sincronizar las opciones de audio con las variables globales
+        self.config.update({
+            "codec": self.codec_var.get(),
+            "bitrate": self.bitrate_var.get(),
+            "bit_depth": self.bit_depth_var.get(),
+            "sample_rate": self.sample_rate_var.get(),
+            "channels": self.channels_var.get(),
+            "normalization": self.normalization_var.get(),
+            "custom_lufs_i": self.custom_lufs_i_var.get(),
+            "custom_lufs_lra": self.custom_lufs_lra_var.get(),
+            "custom_lufs_tp": self.custom_lufs_tp_var.get(),
+        })
+        self.save_config()
 
     def update_codec_options(self, *args):
         codec = self.codec_var.get()
