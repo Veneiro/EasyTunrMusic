@@ -186,10 +186,10 @@ def create_audio_options_tab(app):
     bitrate_label = ttk.Label(app.bitrate_frame, text=TRANSLATIONS[lang]['bitrate_label'])
     bitrate_label.pack(side='left', padx=5)
     app.widget_translation_keys[str(id(bitrate_label))] = 'bitrate_label'
-    bitrate_combobox = ttk.Combobox(app.bitrate_frame, textvariable=app.bitrate_var, 
-                                   values=["32", "48", "64", "96", "128", "160", "192", "256", "320"], 
-                                   state='readonly', width=12, bootstyle=SECONDARY)
-    bitrate_combobox.pack(side='left', padx=5)
+    app.bitrate_combobox = ttk.Combobox(app.bitrate_frame, textvariable=app.bitrate_var, 
+                                       values=["32", "48", "64", "96", "128", "160", "192", "256", "320"], 
+                                       state='readonly', width=12, bootstyle=SECONDARY)
+    app.bitrate_combobox.pack(side='left', padx=5)
     logging.debug(f"Created bitrate_frame with bitrate_label and bitrate_combobox")
 
     # Lossless frame
@@ -198,15 +198,15 @@ def create_audio_options_tab(app):
     bit_depth_label = ttk.Label(app.lossless_frame, text=TRANSLATIONS[lang]['bit_depth_label'])
     bit_depth_label.pack(side='left', padx=5)
     app.widget_translation_keys[str(id(bit_depth_label))] = 'bit_depth_label'
-    bit_depth_combobox = ttk.Combobox(app.lossless_frame, textvariable=app.bit_depth_var, 
-                                     values=["16", "24", "32"], state='readonly', width=12, bootstyle=SECONDARY)
-    bit_depth_combobox.pack(side='left', padx=5)
+    app.bit_depth_combobox = ttk.Combobox(app.lossless_frame, textvariable=app.bit_depth_var, 
+                                         values=["16", "24", "32"], state='readonly', width=12, bootstyle=SECONDARY)
+    app.bit_depth_combobox.pack(side='left', padx=5)
     sample_rate_label = ttk.Label(app.lossless_frame, text=TRANSLATIONS[lang]['sample_rate_label'])
     sample_rate_label.pack(side='left', padx=20)
     app.widget_translation_keys[str(id(sample_rate_label))] = 'sample_rate_label'
-    sample_rate_combobox = ttk.Combobox(app.lossless_frame, textvariable=app.sample_rate_var, 
-                                       values=["44100", "48000", "96000", "192000"], state='readonly', width=12, bootstyle=SECONDARY)
-    sample_rate_combobox.pack(side='left', padx=5)
+    app.sample_rate_combobox = ttk.Combobox(app.lossless_frame, textvariable=app.sample_rate_var, 
+                                           values=["44100", "48000", "96000", "192000"], state='readonly', width=12, bootstyle=SECONDARY)
+    app.sample_rate_combobox.pack(side='left', padx=5)
     logging.debug(f"Created lossless_frame with bit_depth_label, bit_depth_combobox, sample_rate_label, sample_rate_combobox")
 
     # Checkbuttons frame

@@ -835,24 +835,32 @@ class DownloaderApp:
     def update_codec_options(self, *args):
         codec = self.codec_var.get()
         logging.debug(f"Updating codec options: codec={codec}")
-        if codec in ["mp3", "aac", "opus"]:
-            if not self.bitrate_frame_visible:
-                logging.debug("Packing bitrate_frame")
-                self.bitrate_frame.pack(pady=10)
-                self.bitrate_frame_visible = True
-            if self.lossless_frame_visible:
-                logging.debug("Unpacking lossless_frame")
-                self.lossless_frame.pack_forget()
-                self.lossless_frame_visible = False
-        else:
-            if self.bitrate_frame_visible:
-                logging.debug("Unpacking bitrate_frame")
-                self.bitrate_frame.pack_forget()
-                self.bitrate_frame_visible = False
-            if not self.lossless_frame_visible:
-                logging.debug("Packing lossless_frame")
-                self.lossless_frame.pack(pady=10)
-                self.lossless_frame_visible = True
+        sample_rate_options = {
+            "mp3": ["32000", "44100", "48000"],
+            "aac": ["44100", "48000"],
+            "opus": ["48000"],
+            "flac": ["44100", "48000", "96000", "192000"],
+            "wav": ["44100", "48000", "96000", "192000"],
+            "alac": ["44100", "48000", "96000", "192000"],
+        }
+        allowed_rates = sample_rate_options.get(codec, ["44100", "48000", "96000", "192000"])
+        if hasattr(self, 'sample_rate_combobox'):
+            self.sample_rate_combobox.configure(values=allowed_rates)
+        if self.sample_rate_var.get() not in allowed_rates:
+            self.sample_rate_var.set(allowed_rates[0])
+        # Keep layout stable; only enable/disable controls per codec
+        if not self.bitrate_frame_visible:
+            self.bitrate_frame.pack(pady=10)
+            self.bitrate_frame_visible = True
+        if not self.lossless_frame_visible:
+            self.lossless_frame.pack(pady=10)
+            self.lossless_frame_visible = True
+
+        is_lossy = codec in ["mp3", "aac", "opus"]
+        if hasattr(self, 'bitrate_combobox'):
+            self.bitrate_combobox.configure(state='readonly' if is_lossy else 'disabled')
+        if hasattr(self, 'bit_depth_combobox'):
+            self.bit_depth_combobox.configure(state='readonly' if not is_lossy else 'disabled')
 
     def update_norm_options(self, *args):
         norm = self.normalization_var.get()
