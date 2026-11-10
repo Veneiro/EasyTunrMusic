@@ -27,6 +27,8 @@ class DownloadSettings:
     extract_thumbnail: bool = False
     keep_original: bool = False
     dynamic_compression: bool = False
+    sponsorblock: bool = False        # quita intros y partes sin música (SponsorBlock)
+    lyrics: bool = False              # descarga la letra (.lrc) desde LRCLIB
 
     @property
     def is_lossy(self):

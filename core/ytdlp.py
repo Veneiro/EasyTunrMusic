@@ -96,6 +96,9 @@ def resolve_playlist(url):
 
 def build_download_args(settings, outtmpl):
     args = ["-f", "bestaudio/best", "-o", outtmpl, "--no-playlist"]
+    if getattr(settings, "sponsorblock", False):
+        # Recorta las partes marcadas como "sin música" (intros, diálogos de videoclip...)
+        args += ["--sponsorblock-remove", "music_offtopic"]
     if settings.extract_audio:
         args += ["-x", "--audio-format", settings.codec]
         if settings.is_lossy:

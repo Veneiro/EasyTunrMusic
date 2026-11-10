@@ -31,6 +31,8 @@ DEFAULTS = {
     "extract_thumbnail": False,
     "keep_original": False,
     "dynamic_compression": False,
+    "sponsorblock": False,
+    "lyrics": False,
 }
 
 AUDIO_KEYS = [f.name for f in fields(DownloadSettings)]

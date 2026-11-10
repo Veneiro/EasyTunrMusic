@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
-from . import audio, library, ytdlp
+from . import audio, library, lyrics, net, spotify_link, tagging, ytdlp
 from .process import ProcessGroup, Cancelled
 from .settings import DownloadSettings
 from .utils import clean_folder_name
@@ -199,6 +199,7 @@ class DownloadJob:
                 audio.postprocess(path, self.settings, self.group,
                                   lambda stage, pct: cb.on_progress(pct, stage, label))
             if path and os.path.exists(path):
+                self._finish_file(item, path)
                 item.result_path = path
         except Cancelled:
             return
@@ -229,3 +230,38 @@ class DownloadJob:
                 logger.warning("No se pudo descargar %s (%s); se prueba otro vídeo", url, exc)
                 self.callbacks.on_progress(0.0, "retrying", item.label)
         return None
+
+    def _finish_file(self, item, path):
+        """Etiquetas de Spotify, carátula y letra. Nunca hace fallar la descarga."""
+        track = item.track
+        want_tags = track is not None and self.settings.metadata
+        if not (want_tags or self.settings.lyrics):
+            return
+        self.callbacks.on_progress(99.0, "tagging", item.label)
+        synced = plain = None
+        if self.settings.lyrics:
+            try:
+                # Duración real del archivo final (ya recortado por SponsorBlock y convertido):
+                # la letra sincronizada solo se guarda si coincide con ella
+                title, artist, file_duration = tagging.read_basic(path)
+                if track is not None:
+                    synced, plain = lyrics.fetch(track.title, track.artist, track.album, track.duration,
+                                                 file_duration=file_duration or None)
+                else:
+                    title, artist = lyrics.guess_from_video_title(title, artist)
+                    synced, plain = lyrics.fetch(title, artist, duration=file_duration or None,
+                                                 file_duration=file_duration or None)
+                if synced:
+                    lyrics.write_lrc(path, synced)
+            except Exception:
+                logger.warning("No se pudo guardar la letra de %s", path, exc_info=True)
+        if want_tags:
+            cover = None
+            if os.path.splitext(path)[1].lower() != ".webm":  # webm no admite etiquetas
+                cover_url = track.cover_url or spotify_link.cover_url_for(track.spotify_id)
+                if cover_url:
+                    try:
+                        cover = net.get(cover_url, timeout=20)
+                    except Exception:
+                        logger.info("No se pudo descargar la carátula %s", cover_url, exc_info=True)
+            tagging.write_tags(path, track, cover, plain)
