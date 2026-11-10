@@ -12,6 +12,8 @@ from . import theme
 from .downloads import DownloadController
 from .i18n import I18n
 from .library import PlaylistView, SearchView, SongsView, SpotifyView
+from .music import MusicView
+from .player import Player
 from .settings import AboutView, AudioView, SettingsView
 from .updater import Updater
 from .uithread import call_ui
@@ -37,6 +39,12 @@ class AppState:
     spotify_total: int = 0
     spotify_name: str = ""
     ytdlp_version: Optional[str] = None
+    library_tracks: Optional[list] = None   # None = aún no se ha leído la carpeta
+    library_root: str = ""
+    library_stale: bool = False
+    library_scanning: bool = False
+    library_query: str = ""
+    library_folder: str = ""
 
 
 NAV = [
@@ -44,6 +52,7 @@ NAV = [
     ("nav_songs", ft.Icons.LINK_OUTLINED, ft.Icons.LINK),
     ("nav_playlist", ft.Icons.PLAYLIST_PLAY_OUTLINED, ft.Icons.PLAYLIST_PLAY),
     ("nav_spotify", ft.Icons.LIBRARY_MUSIC_OUTLINED, ft.Icons.LIBRARY_MUSIC),
+    ("nav_library", ft.Icons.HEADPHONES_OUTLINED, ft.Icons.HEADPHONES),
     ("nav_audio", ft.Icons.TUNE_OUTLINED, ft.Icons.TUNE),
     ("nav_settings", ft.Icons.SETTINGS_OUTLINED, ft.Icons.SETTINGS),
     ("nav_about", ft.Icons.INFO_OUTLINE, ft.Icons.INFO),
@@ -59,8 +68,9 @@ class EasyTunrApp:
         self.file_picker = ft.FilePicker()
         self.downloads = DownloadController(self)
         self.updater = Updater(self)
+        self.player = Player(self)
         self.views = [SearchView(self), SongsView(self), PlaylistView(self), SpotifyView(self),
-                      AudioView(self), SettingsView(self), AboutView(self)]
+                      MusicView(self), AudioView(self), SettingsView(self), AboutView(self)]
         self.index = 0
 
         theme.apply(page, config)
@@ -72,7 +82,7 @@ class EasyTunrApp:
             TitleBar(page).build(),
             ft.Row(
                 [self.rail, ft.VerticalDivider(width=1),
-                 ft.Column([self.content, self.downloads.panel], expand=True, spacing=0)],
+                 ft.Column([self.content, self.downloads.panel, self.player.bar], expand=True, spacing=0)],
                 expand=True, spacing=0,
             ),
         ], expand=True, spacing=0))
@@ -123,6 +133,11 @@ class EasyTunrApp:
     def apply_theme(self):
         theme.apply(self.page, self.config)
         self.page.update()
+
+    def on_player_changed(self):
+        view = self.views[self.index]
+        if hasattr(view, "on_player_changed"):
+            view.on_player_changed()
 
     def on_busy_changed(self):
         # Habilita o deshabilita los botones de descarga de la sección visible

@@ -15,6 +15,7 @@ DEFAULTS = {
     "accent": "orange",
     "threads": "4",
     "check_updates": True,
+    "volume": 0.8,
     "music_folder": None,        # None -> paths.default_music_folder()
     "codec": "mp3",
     "bitrate": "192",

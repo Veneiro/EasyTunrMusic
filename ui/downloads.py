@@ -192,6 +192,7 @@ class DownloadController:
 
     def _on_finished(self, failed, cancelled):
         job, self.job = self.job, None
+        self.app.state.library_stale = True  # hay canciones nuevas en la carpeta
         self.panel.visible = False
         self._paint(force=True)
         self.app.on_busy_changed()
