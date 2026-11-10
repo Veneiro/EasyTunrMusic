@@ -15,28 +15,33 @@ def create_search_tab(app):
     logging.debug(f"Creating search tab with language: {lang}")
     search_tab = tk.Frame(app.notebook, bg=app.style.colors.bg)
 
-    search_label = ttk.Label(search_tab, text=TRANSLATIONS[lang]['search_label'], font=('Segoe UI', 12, 'bold'))
-    search_label.pack(pady=10, anchor="center")
+    main_frame = tk.Frame(search_tab, bg=app.style.colors.bg)
+    main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+    search_label = ttk.Label(main_frame, text=TRANSLATIONS[lang]['search_label'], font=('Segoe UI', 12, 'bold'))
+    search_label.pack(pady=(0, 10), anchor="w")
     app.widget_translation_keys[str(id(search_label))] = 'search_label'
 
-    ttk.Entry(search_tab, textvariable=app.search_query_var, width=60, bootstyle=SECONDARY).pack(pady=10, anchor="center")
+    input_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    input_frame.pack(fill='x', pady=5)
+    ttk.Entry(input_frame, textvariable=app.search_query_var, bootstyle=SECONDARY).pack(side='left', fill='x', expand=True, padx=(0, 8))
 
-    search_button = ttk.Button(search_tab, text=TRANSLATIONS[lang]['search_button'], command=app.open_search_results)
-    search_button.pack(pady=10, anchor="center")
+    search_button = ttk.Button(input_frame, text=TRANSLATIONS[lang]['search_button'], command=app.open_search_results)
+    search_button.pack(side='left')
     app.widget_translation_keys[str(id(search_button))] = 'search_button'
 
-    queue_label = ttk.Label(search_tab, text=TRANSLATIONS[lang]['queue_label'])
-    queue_label.pack(pady=10, anchor="center")
+    queue_label = ttk.Label(main_frame, text=TRANSLATIONS[lang]['queue_label'])
+    queue_label.pack(pady=(12, 6), anchor="w")
     app.widget_translation_keys[str(id(queue_label))] = 'queue_label'
 
-    app.search_song_listbox = tk.Listbox(search_tab, width=60, height=8, font=('Segoe UI', 10), bg='#FFFFFF', relief='flat', borderwidth=1)
-    app.search_song_listbox.pack(pady=10, anchor="center")
+    app.search_song_listbox = tk.Listbox(main_frame, width=90, height=10, font=('Segoe UI', 10), bg='#FFFFFF', relief='flat', borderwidth=1)
+    app.search_song_listbox.pack(fill='both', expand=True, pady=(0, 10))
 
     # Visualización estática de la carpeta de destino
-    create_destination_display(search_tab, app, editable=False)
+    create_destination_display(main_frame, app, editable=False)
 
-    search_action_frame = tk.Frame(search_tab, bg=app.style.colors.bg)
-    search_action_frame.pack(pady=10)
+    search_action_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    search_action_frame.pack(pady=10, anchor='w')
 
     remove_button = ttk.Button(search_action_frame, text=TRANSLATIONS[lang]['remove_button'], command=app.remove_search_song, bootstyle=SECONDARY)
     remove_button.pack(side='left', padx=5)
@@ -46,8 +51,8 @@ def create_search_tab(app):
     download_queue_button.pack(side='left', padx=5)
     app.widget_translation_keys[str(id(download_queue_button))] = 'download_queue_button'
 
-    app.search_status_label = tk.Label(search_tab, text=TRANSLATIONS[lang]['status_waiting_search'], wraplength=500, bg=app.style.colors.bg, font=('Segoe UI', 10))
-    app.search_status_label.pack(pady=10)
+    app.search_status_label = tk.Label(main_frame, text=TRANSLATIONS[lang]['status_waiting_search'], wraplength=800, bg=app.style.colors.bg, font=('Segoe UI', 10), anchor='w', justify='left')
+    app.search_status_label.pack(fill='x', pady=(6, 0))
     app.widget_translation_keys[str(id(app.search_status_label))] = 'status_waiting_search'
 
     return search_tab
@@ -57,28 +62,33 @@ def create_songs_tab(app):
     logging.debug(f"Creating songs tab with language: {lang}")
     songs_tab = tk.Frame(app.notebook, bg=app.style.colors.bg)
 
-    songs_label = ttk.Label(songs_tab, text=TRANSLATIONS[lang]['songs_label'], font=('Segoe UI', 12, 'bold'))
-    songs_label.pack(pady=10, anchor="center")
+    main_frame = tk.Frame(songs_tab, bg=app.style.colors.bg)
+    main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+    songs_label = ttk.Label(main_frame, text=TRANSLATIONS[lang]['songs_label'], font=('Segoe UI', 12, 'bold'))
+    songs_label.pack(pady=(0, 10), anchor="w")
     app.widget_translation_keys[str(id(songs_label))] = 'songs_label'
 
-    ttk.Entry(songs_tab, textvariable=app.song_entry_var, width=60, bootstyle=SECONDARY).pack(pady=10, anchor="center")
+    input_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    input_frame.pack(fill='x', pady=5)
+    ttk.Entry(input_frame, textvariable=app.song_entry_var, bootstyle=SECONDARY).pack(side='left', fill='x', expand=True, padx=(0, 8))
 
-    app.add_button = ttk.Button(songs_tab, text=TRANSLATIONS[lang]['add_button'], command=app.add_song)
-    app.add_button.pack(pady=10, anchor="center")
+    app.add_button = ttk.Button(input_frame, text=TRANSLATIONS[lang]['add_button'], command=app.add_song)
+    app.add_button.pack(side='left', padx=(0, 6))
     app.widget_translation_keys[str(id(app.add_button))] = 'add_button'
 
-    remove_button = ttk.Button(songs_tab, text=TRANSLATIONS[lang]['remove_button'], command=app.remove_song, bootstyle=SECONDARY)
-    remove_button.pack(pady=10, anchor="center")
+    remove_button = ttk.Button(input_frame, text=TRANSLATIONS[lang]['remove_button'], command=app.remove_song, bootstyle=SECONDARY)
+    remove_button.pack(side='left')
     app.widget_translation_keys[str(id(remove_button))] = 'remove_button'
 
-    app.song_listbox = tk.Listbox(songs_tab, width=60, height=10, font=('Segoe UI', 10), bg='#FFFFFF', relief='flat', borderwidth=1)
-    app.song_listbox.pack(pady=10, anchor="center")
+    app.song_listbox = tk.Listbox(main_frame, width=90, height=12, font=('Segoe UI', 10), bg='#FFFFFF', relief='flat', borderwidth=1)
+    app.song_listbox.pack(fill='both', expand=True, pady=(8, 10))
 
     # Visualización estática de la carpeta de destino
-    create_destination_display(songs_tab, app, editable=False)
+    create_destination_display(main_frame, app, editable=False)
 
-    songs_button_frame = tk.Frame(songs_tab, bg=app.style.colors.bg)
-    songs_button_frame.pack(pady=10)
+    songs_button_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    songs_button_frame.pack(pady=10, anchor='w')
 
     app.songs_download_button = ttk.Button(songs_button_frame, text=TRANSLATIONS[lang]['download_button'], command=lambda: start_songs_download(app))
     app.songs_download_button.pack(side='left', padx=5)
@@ -92,8 +102,8 @@ def create_songs_tab(app):
     app.songs_cancel_button.pack(side='left', padx=5)
     app.widget_translation_keys[str(id(app.songs_cancel_button))] = 'cancel_button'
 
-    app.songs_status_label = tk.Label(songs_tab, text=TRANSLATIONS[lang]['status_waiting_songs'], wraplength=500, bg=app.style.colors.bg, font=('Segoe UI', 10))
-    app.songs_status_label.pack(pady=10)
+    app.songs_status_label = tk.Label(main_frame, text=TRANSLATIONS[lang]['status_waiting_songs'], wraplength=800, bg=app.style.colors.bg, font=('Segoe UI', 10), anchor='w', justify='left')
+    app.songs_status_label.pack(fill='x', pady=(6, 0))
     app.widget_translation_keys[str(id(app.songs_status_label))] = 'status_waiting_songs'
 
     return songs_tab
@@ -102,22 +112,25 @@ def create_playlist_tab(app):
     lang = app.language_var.get()
     logging.debug(f"Creating playlist tab with language: {lang}")
     playlist_tab = tk.Frame(app.notebook, bg=app.style.colors.bg)
+    main_frame = tk.Frame(playlist_tab, bg=app.style.colors.bg)
+    main_frame.pack(fill='both', expand=True, padx=20, pady=20)
     
-    playlist_label = ttk.Label(playlist_tab, text=TRANSLATIONS[lang]['playlist_label'], font=('Segoe UI', 12, 'bold'))
-    playlist_label.pack(pady=10, anchor="center")
+    playlist_label = ttk.Label(main_frame, text=TRANSLATIONS[lang]['playlist_label'], font=('Segoe UI', 12, 'bold'))
+    playlist_label.pack(pady=(0, 10), anchor="w")
     app.widget_translation_keys[str(id(playlist_label))] = 'playlist_label'
-    
-    ttk.Entry(playlist_tab, textvariable=app.playlist_url_var, width=60, bootstyle=SECONDARY).pack(pady=10, anchor="center")
+
+    input_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    input_frame.pack(fill='x', pady=5)
+    ttk.Entry(input_frame, textvariable=app.playlist_url_var, bootstyle=SECONDARY).pack(side='left', fill='x', expand=True, padx=(0, 8))
+    app.playlist_download_button = ttk.Button(input_frame, text=TRANSLATIONS[lang]['download_playlist_button'], command=lambda: start_playlist_download(app))
+    app.playlist_download_button.pack(side='left')
+    app.widget_translation_keys[str(id(app.playlist_download_button))] = 'download_playlist_button'
 
     # Visualización estática de la carpeta de destino
-    create_destination_display(playlist_tab, app, editable=False)
+    create_destination_display(main_frame, app, editable=False)
 
-    playlist_button_frame = tk.Frame(playlist_tab, bg=app.style.colors.bg)
-    playlist_button_frame.pack(pady=10)
-    
-    app.playlist_download_button = ttk.Button(playlist_button_frame, text=TRANSLATIONS[lang]['download_playlist_button'], command=lambda: start_playlist_download(app))
-    app.playlist_download_button.pack(side='left', padx=5)
-    app.widget_translation_keys[str(id(app.playlist_download_button))] = 'download_playlist_button'
+    playlist_button_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    playlist_button_frame.pack(pady=10, anchor='w')
     
     app.playlist_pause_button = ttk.Button(playlist_button_frame, text=TRANSLATIONS[lang]['pause_button'], command=app.toggle_pause, state='disabled', bootstyle=SECONDARY)
     app.playlist_pause_button.pack(side='left', padx=5)
@@ -127,11 +140,56 @@ def create_playlist_tab(app):
     app.playlist_cancel_button.pack(side='left', padx=5)
     app.widget_translation_keys[str(id(app.playlist_cancel_button))] = 'cancel_button'
 
-    app.playlist_status_label = tk.Label(playlist_tab, text=TRANSLATIONS[lang]['status_waiting_playlist'], wraplength=500, bg=app.style.colors.bg, font=('Segoe UI', 10))
-    app.playlist_status_label.pack(pady=10)
+    app.playlist_status_label = tk.Label(main_frame, text=TRANSLATIONS[lang]['status_waiting_playlist'], wraplength=800, bg=app.style.colors.bg, font=('Segoe UI', 10), anchor='w', justify='left')
+    app.playlist_status_label.pack(fill='x', pady=(6, 0))
     app.widget_translation_keys[str(id(app.playlist_status_label))] = 'status_waiting_playlist'
 
     return playlist_tab
+
+def create_spotify_csv_tab(app):
+    lang = app.language_var.get()
+    logging.debug(f"Creating spotify csv tab with language: {lang}")
+    spotify_tab = tk.Frame(app.notebook, bg=app.style.colors.bg)
+    main_frame = tk.Frame(spotify_tab, bg=app.style.colors.bg)
+    main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+    spotify_label = ttk.Label(main_frame, text=TRANSLATIONS[lang]['spotify_csv_label'], font=('Segoe UI', 12, 'bold'))
+    spotify_label.pack(pady=(0, 10), anchor="w")
+    app.widget_translation_keys[str(id(spotify_label))] = 'spotify_csv_label'
+
+    load_csv_button = ttk.Button(main_frame, text=TRANSLATIONS[lang]['spotify_load_csv_button'], command=app.load_spotify_csv)
+    load_csv_button.pack(pady=(0, 10), anchor="w")
+    app.widget_translation_keys[str(id(load_csv_button))] = 'spotify_load_csv_button'
+
+    app.spotify_song_listbox = tk.Listbox(main_frame, width=90, height=12, font=('Segoe UI', 10), bg='#FFFFFF', relief='flat', borderwidth=1)
+    app.spotify_song_listbox.pack(fill='both', expand=True, pady=(0, 10))
+
+    create_destination_display(main_frame, app, editable=False)
+
+    spotify_button_frame = tk.Frame(main_frame, bg=app.style.colors.bg)
+    spotify_button_frame.pack(pady=10, anchor='w')
+
+    app.spotify_remove_button = ttk.Button(spotify_button_frame, text=TRANSLATIONS[lang]['remove_button'], command=app.remove_spotify_song, bootstyle=SECONDARY)
+    app.spotify_remove_button.pack(side='left', padx=5)
+    app.widget_translation_keys[str(id(app.spotify_remove_button))] = 'remove_button'
+
+    app.spotify_download_button = ttk.Button(spotify_button_frame, text=TRANSLATIONS[lang]['download_button'], command=app.start_spotify_csv_download)
+    app.spotify_download_button.pack(side='left', padx=5)
+    app.widget_translation_keys[str(id(app.spotify_download_button))] = 'download_button'
+
+    app.spotify_pause_button = ttk.Button(spotify_button_frame, text=TRANSLATIONS[lang]['pause_button'], command=app.toggle_pause, state='disabled', bootstyle=SECONDARY)
+    app.spotify_pause_button.pack(side='left', padx=5)
+    app.widget_translation_keys[str(id(app.spotify_pause_button))] = 'pause_button'
+
+    app.spotify_cancel_button = ttk.Button(spotify_button_frame, text=TRANSLATIONS[lang]['cancel_button'], command=app.cancel_download, state='disabled', bootstyle=DANGER)
+    app.spotify_cancel_button.pack(side='left', padx=5)
+    app.widget_translation_keys[str(id(app.spotify_cancel_button))] = 'cancel_button'
+
+    app.spotify_status_label = tk.Label(main_frame, text=TRANSLATIONS[lang]['status_waiting_spotify'], wraplength=800, bg=app.style.colors.bg, font=('Segoe UI', 10), anchor='w', justify='left')
+    app.spotify_status_label.pack(fill='x', pady=(6, 0))
+    app.widget_translation_keys[str(id(app.spotify_status_label))] = 'status_waiting_spotify'
+
+    return spotify_tab
 
 def create_audio_options_tab(app):
     lang = app.language_var.get()
@@ -418,7 +476,7 @@ def create_destination_display(parent, app, editable=False):
         select_folder_button.pack(side="right", padx=5)
     else:
         # Etiqueta estática para mostrar la carpeta de destino
-        destination_label = ttk.Label(destination_frame, textvariable=app.music_folder_var, wraplength=400, font=('Segoe UI', 10), anchor="center")
+        destination_label = ttk.Label(destination_frame, textvariable=app.music_folder_var, wraplength=820, font=('Segoe UI', 10), anchor="center")
         destination_label.pack(side="top", padx=5, fill="x", expand=True)
 
     return destination_frame

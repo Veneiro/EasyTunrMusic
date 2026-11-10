@@ -1,13 +1,14 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import os
 import json
+import csv
 from queue import Queue
 from threading import Thread
 from translations import TRANSLATIONS
-from ui_components import create_search_tab, create_songs_tab, create_playlist_tab, create_audio_options_tab, create_options_tab, create_about_tab
+from ui_components import create_search_tab, create_songs_tab, create_playlist_tab, create_spotify_csv_tab, create_audio_options_tab, create_options_tab, create_about_tab
 from download_manager import download, download_search_songs, download_search_playlist, start_songs_download, start_playlist_download
 from utils import clean_folder_name
 import yt_dlp
@@ -51,8 +52,8 @@ class DownloaderApp:
         self.root.iconbitmap(icon_path)
 
         # Tamaño de la ventana
-        window_width = 745
-        window_height = 650
+        window_width = 980
+        window_height = 680
 
         # Obtener tamaño de la pantalla
         screen_width = self.root.winfo_screenwidth()
@@ -148,6 +149,9 @@ class DownloaderApp:
         self.is_playlist = False
         self.song_urls = []
         self.search_song_urls = []
+        self.spotify_song_urls = []
+        self.spotify_playlist_name = "Spotify CSV"
+        self.current_download_label = ""
         self.search_results = []
         self.quality_frame_visible = False
         self.bitrate_frame_visible = False
@@ -158,7 +162,7 @@ class DownloaderApp:
 
         # Configure styles
         self.style.configure('TNotebook', background=self.style.colors.bg, tabmargins=(10, 10, 0, 0))
-        self.style.configure('TNotebook.Tab', font=('Segoe UI', 10), padding=[15, 8], background='#FFFFFF')
+        self.style.configure('TNotebook.Tab', font=('Segoe UI', 10), padding=[18, 8], background='#FFFFFF')
         self.style.map('TNotebook.Tab', background=[('selected', '#FFFFFF'), ('active', '#E6E6E6')])
         self.style.configure('TButton', font=('Segoe UI', 10), padding=8, bootstyle=PRIMARY)
         self.style.configure('TLabel', font=('Segoe UI', 10))
@@ -176,6 +180,7 @@ class DownloaderApp:
         self.search_tab = create_search_tab(self)
         self.songs_tab = create_songs_tab(self)
         self.playlist_tab = create_playlist_tab(self)
+        self.spotify_csv_tab = create_spotify_csv_tab(self)
         self.audio_tab = create_audio_options_tab(self)
         self.options_tab = create_options_tab(self)
         self.about_tab = create_about_tab(self)
@@ -189,6 +194,8 @@ class DownloaderApp:
         self.notebook.tab(self.songs_tab, state='normal')
         self.notebook.add(self.playlist_tab, text=TRANSLATIONS[lang]['playlist_tab'])
         self.notebook.tab(self.playlist_tab, state='normal')
+        self.notebook.add(self.spotify_csv_tab, text=TRANSLATIONS[lang]['spotify_tab'])
+        self.notebook.tab(self.spotify_csv_tab, state='normal')
         self.notebook.add(self.audio_tab, text=TRANSLATIONS[lang]['audio_tab'])
         self.notebook.tab(self.audio_tab, state='normal')
         self.notebook.add(self.options_tab, text=TRANSLATIONS[lang]['options_tab'])
@@ -370,6 +377,7 @@ class DownloaderApp:
         self.notebook.tab(self.search_tab, text=TRANSLATIONS[lang]['search_tab'])
         self.notebook.tab(self.songs_tab, text=TRANSLATIONS[lang]['songs_tab'])
         self.notebook.tab(self.playlist_tab, text=TRANSLATIONS[lang]['playlist_tab'])
+        self.notebook.tab(self.spotify_csv_tab, text=TRANSLATIONS[lang]['spotify_tab'])
         self.notebook.tab(self.audio_tab, text=TRANSLATIONS[lang]['audio_tab'])
         self.notebook.tab(self.options_tab, text=TRANSLATIONS[lang]['options_tab'])
         self.notebook.tab(self.about_tab, text=TRANSLATIONS[lang]['about_tab'])
@@ -378,6 +386,7 @@ class DownloaderApp:
         self._update_widget_text(self.search_tab, lang)
         self._update_widget_text(self.songs_tab, lang)
         self._update_widget_text(self.playlist_tab, lang)
+        self._update_widget_text(self.spotify_csv_tab, lang)
         self._update_widget_text(self.audio_tab, lang)
         self._update_widget_text(self.options_tab, lang)
         self._update_widget_text(self.about_tab, lang)
@@ -386,6 +395,7 @@ class DownloaderApp:
         self.search_status_label.config(text=TRANSLATIONS[lang]['status_waiting_search'])
         self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs'])
         self.playlist_status_label.config(text=TRANSLATIONS[lang]['status_waiting_playlist'])
+        self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify'])
     
         # Reaplicar tema para garantizar consistencia
         self.update_theme()
@@ -582,6 +592,9 @@ class DownloaderApp:
         self.widget_translation_keys[str(id(self.songs_pause_button))] = 'resume_button' if self.is_paused else 'pause_button'
         self.playlist_pause_button.configure(text=pause_text)
         self.widget_translation_keys[str(id(self.playlist_pause_button))] = 'resume_button' if self.is_paused else 'pause_button'
+        if hasattr(self, 'spotify_pause_button'):
+            self.spotify_pause_button.configure(text=pause_text)
+            self.widget_translation_keys[str(id(self.spotify_pause_button))] = 'resume_button' if self.is_paused else 'pause_button'
         if hasattr(self, 'progress_pause_button'):
             self.progress_pause_button.configure(text=pause_text)
             self.widget_translation_keys[str(id(self.progress_pause_button))] = 'resume_button' if self.is_paused else 'pause_button'
@@ -591,6 +604,8 @@ class DownloaderApp:
         self.songs_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
         self.playlist_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
         self.search_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
+        if hasattr(self, 'spotify_status_label'):
+            self.spotify_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
         if hasattr(self, 'progress_status_label'):
             self.progress_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
 
@@ -607,6 +622,12 @@ class DownloaderApp:
         self.playlist_download_button.configure(state='normal')
         self.playlist_pause_button.configure(state='disabled')
         self.playlist_cancel_button.configure(state='disabled')
+        if hasattr(self, 'spotify_download_button'):
+            self.spotify_download_button.configure(state='normal')
+        if hasattr(self, 'spotify_pause_button'):
+            self.spotify_pause_button.configure(state='disabled')
+        if hasattr(self, 'spotify_cancel_button'):
+            self.spotify_cancel_button.configure(state='disabled')
         self.global_progress_var.set(0.0)
         self.video_progress_var.set(0.0)
         if error_message:
@@ -781,6 +802,186 @@ class DownloaderApp:
                 self.root.after(0, self.hide_spinner)  # Ocultar spinner
 
         Thread(target=process_song).start()
+
+    def load_spotify_csv(self):
+        lang = self.language_var.get()
+        csv_path = filedialog.askopenfilename(
+            title=TRANSLATIONS[lang]['spotify_select_csv'],
+            filetypes=[("CSV", "*.csv"), ("All files", "*.*")]
+        )
+        if not csv_path:
+            return
+
+        self.spotify_playlist_name = os.path.splitext(os.path.basename(csv_path))[0] or "Spotify CSV"
+
+        self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_processing'])
+        self.show_spinner()
+
+        def normalize_text(value):
+            return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', (value or '').lower())).strip()
+
+        def token_set(value):
+            normalized = normalize_text(value)
+            return {token for token in normalized.split(' ') if token}
+
+        def score_candidate(entry, title, artist, expected_seconds=None):
+            entry_title = entry.get('title', '') or ''
+            uploader = entry.get('uploader', '') or entry.get('channel', '') or ''
+            full_text = f"{entry_title} {uploader}"
+            full_tokens = token_set(full_text)
+            title_tokens = token_set(title)
+            artist_tokens = token_set(artist)
+
+            score = 0
+            if title_tokens:
+                title_overlap = len(title_tokens & full_tokens) / max(len(title_tokens), 1)
+                score += title_overlap * 70
+            if artist_tokens:
+                artist_overlap = len(artist_tokens & full_tokens) / max(len(artist_tokens), 1)
+                score += artist_overlap * 40
+
+            bad_keywords = ['live', 'karaoke', 'cover', 'remix', 'nightcore', 'sped up', 'reverb', 'instrumental', '8d']
+            lowered_title = entry_title.lower()
+            query_text = f"{title} {artist}".lower()
+            for keyword in bad_keywords:
+                if keyword in lowered_title and keyword not in query_text:
+                    score -= 25
+
+            duration = entry.get('duration')
+            if expected_seconds and isinstance(duration, (int, float)):
+                diff = abs(float(duration) - float(expected_seconds))
+                if diff <= 8:
+                    score += 20
+                elif diff <= 20:
+                    score += 10
+                elif diff > 45:
+                    score -= 30
+
+            return score
+
+        def process_csv():
+            try:
+                with open(csv_path, 'r', encoding='utf-8-sig', newline='') as file:
+                    sample = file.read(4096)
+                    file.seek(0)
+                    try:
+                        dialect = csv.Sniffer().sniff(sample, delimiters=",;")
+                    except csv.Error:
+                        dialect = csv.excel
+                    reader = csv.DictReader(file, dialect=dialect)
+                    rows = list(reader)
+
+                if not rows:
+                    self.root.after(0, lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
+                    return
+
+                title_key = next((k for k in (reader.fieldnames or []) if k.lower().strip() in ['track name', 'name', 'title', 'track']), None)
+                artist_key = next((k for k in (reader.fieldnames or []) if k.lower().strip() in ['artist name(s)', 'artist', 'artists', 'album artist name']), None)
+                duration_key = next((k for k in (reader.fieldnames or []) if k.lower().strip() in ['duration (ms)', 'duration_ms', 'duration']), None)
+                if not title_key and reader.fieldnames:
+                    title_key = reader.fieldnames[0]
+
+                resolved = []
+                used_filenames = {}
+                ydl_opts = {
+                    'quiet': True,
+                    'extract_flat': True,
+                    'force_generic_extractor': False,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    for index, row in enumerate(rows, start=1):
+                        title = (row.get(title_key, '') if title_key else '').strip()
+                        artist = (row.get(artist_key, '') if artist_key else '').strip()
+                        if not title:
+                            continue
+
+                        duration_seconds = None
+                        if duration_key:
+                            raw_duration = (row.get(duration_key, '') or '').strip()
+                            if raw_duration.isdigit():
+                                duration_seconds = int(raw_duration) / 1000 if int(raw_duration) > 1000 else int(raw_duration)
+
+                        query = f"\"{title}\" {artist} official audio".strip()
+                        info = ydl.extract_info(f"ytsearch8:{query}", download=False)
+                        entries = info.get('entries') or []
+                        if entries:
+                            scored = []
+                            for entry in entries:
+                                scored.append((score_candidate(entry, title, artist, duration_seconds), entry))
+                            scored.sort(key=lambda item: item[0], reverse=True)
+                            best_score, entry = scored[0]
+                            url = entry.get('webpage_url') or entry.get('url')
+                            if url and not re.match(r'https?://', url):
+                                url = f"https://www.youtube.com/watch?v={url}"
+                            if url and best_score >= 30:
+                                base_filename = f"{title} - {artist}".strip(" -") or title
+                                count = used_filenames.get(base_filename, 0) + 1
+                                used_filenames[base_filename] = count
+                                final_filename = f"{base_filename} ({count})" if count > 1 else base_filename
+                                resolved.append({
+                                    'url': url,
+                                    'title': title,
+                                    'artist': artist,
+                                    'resolved_title': entry.get('title', ''),
+                                    'source': 'spotify_csv',
+                                    'filename': final_filename
+                                })
+
+                        self.root.after(0, lambda i=index, total=len(rows), found=len(resolved): self.spotify_status_label.config(
+                            text=TRANSLATIONS[lang]['status_spotify_resolving'].format(i, total, found)
+                        ))
+
+                def update_ui_with_results():
+                    self.spotify_song_urls.clear()
+                    self.spotify_song_listbox.delete(0, tk.END)
+                    for item in resolved:
+                        self.spotify_song_urls.append(item)
+                        display_text = f"{item['title']} - {item['artist']}"
+                        if item.get('resolved_title'):
+                            display_text = f"{display_text} → {item['resolved_title']}"
+                        self.spotify_song_listbox.insert(tk.END, display_text)
+                    self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_spotify_loaded'].format(len(self.spotify_song_urls)))
+                    self.update_quality_frame()
+
+                self.root.after(0, update_ui_with_results)
+            except Exception as e:
+                self.root.after(0, lambda: self.show_result_message('error', TRANSLATIONS[lang]['error_process_url'].format(str(e))))
+                self.root.after(0, lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
+            finally:
+                self.root.after(0, self.hide_spinner)
+
+        Thread(target=process_csv).start()
+
+    def remove_spotify_song(self):
+        lang = self.language_var.get()
+        selection = self.spotify_song_listbox.curselection()
+        if not selection:
+            self.show_result_message('warning', TRANSLATIONS[lang]['error_remove_song'])
+            return
+        index = selection[0]
+        self.spotify_song_listbox.delete(index)
+        self.spotify_song_urls.pop(index)
+        self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_song_removed'].format(len(self.spotify_song_urls)))
+        self.update_quality_frame()
+
+    def start_spotify_csv_download(self):
+        lang = self.language_var.get()
+        if not self.spotify_song_urls:
+            self.show_result_message('error', TRANSLATIONS[lang]['error_no_songs'])
+            return
+
+        self.failed_videos = []
+        self.global_progress_var.set(0.0)
+        self.video_progress_var.set(0.0)
+        self.total_videos = 0
+        self.completed_videos = 0
+        self.is_paused = False
+        self.is_cancelled = False
+        self.is_playlist = False
+        self.spotify_download_button.configure(state='disabled')
+        self.spotify_pause_button.configure(state='normal')
+        self.spotify_cancel_button.configure(state='normal')
+        Thread(target=download, args=(self, self.spotify_song_urls, False)).start()
         
     def remove_song(self):
         lang = self.language_var.get()
@@ -798,16 +999,17 @@ class DownloaderApp:
         """Actualiza la visibilidad y sincronización de las opciones de calidad de audio."""
         has_search_songs = len(self.search_song_urls) > 0
         has_songs = len(self.song_urls) > 0
+        has_spotify_songs = len(self.spotify_song_urls) > 0
         has_playlist = self.playlist_url_var.get().strip()
         has_search = len(self.search_results) > 0
     
-        if (has_search_songs or has_songs or has_playlist or has_search) and not self.quality_frame_visible:
+        if (has_search_songs or has_songs or has_spotify_songs or has_playlist or has_search) and not self.quality_frame_visible:
             logging.debug("Packing quality_frame in audio_tab")
             self.quality_frame.pack(fill='x', pady=10, padx=10)
             self.quality_frame_visible = True
             self.update_codec_options()
             self.update_norm_options()
-        elif not (has_search_songs or has_songs or has_playlist or has_search) and self.quality_frame_visible:
+        elif not (has_search_songs or has_songs or has_spotify_songs or has_playlist or has_search) and self.quality_frame_visible:
             logging.debug("Unpacking quality_frame from audio_tab")
             self.quality_frame.pack_forget()
             self.bitrate_frame.pack_forget()

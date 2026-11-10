@@ -11,6 +11,25 @@ from utils import clean_folder_name
 
 logger = logging.getLogger(__name__)
 
+def _set_progress_ui(app, percent, status_text=None):
+    percent = max(0.0, min(100.0, float(percent)))
+
+    def ui_update():
+        app.video_progress_var.set(percent)
+        if app.total_videos > 1:
+            app.global_progress_var.set((app.completed_videos + percent / 100) / app.total_videos * 100)
+        else:
+            app.global_progress_var.set(percent)
+        if status_text and hasattr(app, 'progress_status_label') and app.progress_status_label.winfo_exists():
+            current_label = getattr(app, 'current_download_label', '')
+            if current_label:
+                status_text = f"{current_label} | {status_text}"
+            app.progress_status_label.config(
+                text=f"{TRANSLATIONS[app.language_var.get()]['progress_status'].split(':')[0]}: {status_text}"
+            )
+
+    app.root.after(0, ui_update)
+
 def get_loudnorm_targets(app):
     if app.normalization_var.get() == "custom":
         return (
@@ -64,14 +83,18 @@ def apply_audio_postprocess(app, input_path):
     temp_path = base_root + '.tmp' + base_ext
 
     if app.normalization_var.get() != "off":
+        processing_text = "Analizando audio..." if app.language_var.get() == 'es' else "Analyzing audio..."
+        _set_progress_ui(app, 84.0, processing_text)
         target_i, target_tp, target_lra = get_loudnorm_targets(app)
         pass1_filters = list(filter_chain)
         pass1_filters.append(
             f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json"
         )
         pass1_cmd = base_args + ['-af', ','.join(pass1_filters), '-f', 'null', '-']
-        pass1 = subprocess.run(pass1_cmd, capture_output=True, text=True)
-        analysis = parse_loudnorm_json(pass1.stderr or pass1.stdout or "")
+        pass1 = subprocess.run(pass1_cmd, capture_output=True)
+        stderr_text = pass1.stderr.decode('utf-8', errors='replace') if pass1.stderr else ""
+        stdout_text = pass1.stdout.decode('utf-8', errors='replace') if pass1.stdout else ""
+        analysis = parse_loudnorm_json(stderr_text or stdout_text or "")
         if not analysis:
             raise RuntimeError("Failed to analyze loudnorm output")
 
@@ -89,15 +112,22 @@ def apply_audio_postprocess(app, input_path):
             f"measured_TP={measured_tp}:measured_thresh={measured_thresh}:"
             f"offset={offset}:linear=true:print_format=summary"
         )
+        processing_text = "Aplicando normalización..." if app.language_var.get() == 'es' else "Applying normalization..."
+        _set_progress_ui(app, 92.0, processing_text)
         pass2_cmd = base_args + ['-af', ','.join(pass2_filters)] + output_args + [temp_path]
         subprocess.run(pass2_cmd, check=True, capture_output=True)
     else:
         if filter_chain:
             base_args += ['-af', ','.join(filter_chain)]
+        processing_text = "Aplicando filtros..." if app.language_var.get() == 'es' else "Applying filters..."
+        _set_progress_ui(app, 90.0, processing_text)
         cmd = base_args + output_args + [temp_path]
         subprocess.run(cmd, check=True, capture_output=True)
 
+    processing_text = "Finalizando archivo..." if app.language_var.get() == 'es' else "Finalizing file..."
+    _set_progress_ui(app, 98.0, processing_text)
     os.replace(temp_path, input_path)
+    _set_progress_ui(app, 100.0)
 
 def get_effective_sample_rate(codec, sample_rate_str):
     try:
@@ -121,7 +151,7 @@ def get_effective_sample_rate(codec, sample_rate_str):
 
     return str(target_rate)
 
-def download_video(app, video_url, output_template):
+def download_video(app, video_url, output_template, song_label=None, custom_template=None):
     if app.is_cancelled:
         return
     while app.is_paused:
@@ -130,9 +160,10 @@ def download_video(app, video_url, output_template):
         import time
         time.sleep(0.1)
     try:
+        app.current_download_label = song_label or ""
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': output_template,
+            'outtmpl': custom_template or output_template,
             'progress_delta': 0.01,
             'quiet': True,
             'progress_hooks': [lambda d: video_progress_hook(app, d)],
@@ -168,31 +199,46 @@ def download_video(app, video_url, output_template):
         logger.exception("Download failed for video_id=%s", video_id)
         app.failed_videos.append((video_id, error_text))
     finally:
+        app.current_download_label = ""
         app.download_queue.put(1)
 
 def video_progress_hook(app, d):
     if app.is_cancelled:
         return
     if d['status'] == 'downloading':
-        percent_str = d.get('_percent_str', '0%').strip('%').replace(' ', '')
-        try:
-            percent = float(percent_str)
-            app.root.after(0, lambda: app.video_progress_var.set(percent))
-            if app.total_videos > 1:
-                app.root.after(0, lambda: app.global_progress_var.set((app.completed_videos + percent / 100) / app.total_videos * 100))
-            else:
-                app.root.after(0, lambda: app.global_progress_var.set(percent))
-                def update_label():
-                    if hasattr(app, 'progress_status_label') and app.progress_status_label.winfo_exists():
-                        app.progress_status_label.config(
-                            text=f"{TRANSLATIONS[app.language_var.get()]['progress_status'].split(':')[0]}: Descargando... {percent:.1f}%")
-                app.root.after(0, update_label)
-        except ValueError:
-            pass
+        percent = None
+        downloaded_bytes = d.get('downloaded_bytes')
+        total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate')
+
+        if downloaded_bytes is not None and total_bytes:
+            try:
+                percent = (float(downloaded_bytes) / float(total_bytes)) * 100.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                percent = None
+
+        if percent is None:
+            percent_str = d.get('_percent_str', '')
+            percent_str = re.sub(r'[^0-9.,]', '', percent_str).replace(',', '.')
+            try:
+                percent = float(percent_str)
+            except (TypeError, ValueError):
+                return
+
+        percent = max(0.0, min(100.0, percent))
+        has_postprocess_phase = bool(app.extract_audio_var.get())
+        display_percent = percent * 0.8 if has_postprocess_phase else percent
+        status_text = (
+            f"Descargando... {display_percent:.1f}%"
+            if app.language_var.get() == 'es' else
+            f"Downloading... {display_percent:.1f}%"
+        )
+        _set_progress_ui(app, display_percent, status_text)
     elif d['status'] == 'finished':
-        app.root.after(0, lambda: app.video_progress_var.set(100.0))
-        if app.total_videos <= 1:
-            app.root.after(0, lambda: app.global_progress_var.set(100.0))
+        if app.extract_audio_var.get():
+            processing_text = "Iniciando postprocesado..." if app.language_var.get() == 'es' else "Starting postprocessing..."
+            _set_progress_ui(app, 80.0, processing_text)
+        else:
+            _set_progress_ui(app, 100.0)
 
 def update_progress(app):
     while not app.download_queue.empty():
@@ -215,6 +261,7 @@ def update_progress(app):
 def download(app, urls, is_playlist):
     try:
         video_urls = []
+        video_items = []
         app.is_playlist = is_playlist
 
         ydl_opts_info = {
@@ -224,6 +271,8 @@ def download(app, urls, is_playlist):
         }
         if is_playlist:
             for url in urls:
+                if isinstance(url, dict):
+                    url = url.get('url', '')
                 with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
                     info = ydl.extract_info(url, download=False)
                     if 'entries' in info and len(info['entries']) > 0:
@@ -232,7 +281,36 @@ def download(app, urls, is_playlist):
                         app.finalize_download(error_message=TRANSLATIONS[app.language_var.get()]['error_not_playlist'])
                         return
         else:
-            video_urls = urls
+            for item in urls:
+                if isinstance(item, dict):
+                    url = item.get('url', '')
+                    title = item.get('title', '')
+                    artist = item.get('artist', '')
+                    label = f"{title} - {artist}".strip(' -')
+                    filename = item.get('filename', '')
+                    source = item.get('source', '')
+                    custom_template = None
+                    if source == 'spotify_csv' and filename:
+                        playlist_name = getattr(app, 'spotify_playlist_name', '') or 'Spotify CSV'
+                        playlist_folder = os.path.join(app.music_folder, clean_folder_name(playlist_name))
+                        if not os.path.exists(playlist_folder):
+                            os.makedirs(playlist_folder)
+                        safe_filename = clean_folder_name(filename)
+                        custom_template = os.path.join(playlist_folder, f"{safe_filename}.%(ext)s")
+                elif isinstance(item, (tuple, list)) and item:
+                    url = item[0]
+                    label = " - ".join([str(part) for part in item[1:3] if part])
+                    custom_template = None
+                else:
+                    url = item
+                    label = ''
+                    custom_template = None
+                if url:
+                    video_urls.append(url)
+                    video_items.append((url, label, custom_template))
+
+        if not video_items:
+            video_items = [(url, '', None) for url in video_urls]
 
         if not video_urls:
             app.finalize_download(error_message=TRANSLATIONS[app.language_var.get()]['error_no_songs'])
@@ -281,7 +359,7 @@ def download(app, urls, is_playlist):
         update_progress(app)
         max_workers = int(app.threads_var.get())
         app.executor = ThreadPoolExecutor(max_workers=max_workers)
-        futures = [app.executor.submit(download_video, app, url, output_template) for url in video_urls]
+        futures = [app.executor.submit(download_video, app, url, output_template, label, custom_template) for url, label, custom_template in video_items]
         for future in futures:
             future.result()
         app.executor = None
