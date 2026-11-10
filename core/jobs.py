@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
-from . import audio, ytdlp
+from . import audio, library, ytdlp
 from .process import ProcessGroup, Cancelled
 from .settings import DownloadSettings
 from .utils import clean_folder_name
@@ -29,6 +29,9 @@ class DownloadItem:
     label: str = ""
     outtmpl: Optional[str] = None
     title_hint: str = ""  # título esperado del vídeo, para detectar nombres repetidos
+    alternatives: List[str] = field(default_factory=list)  # otros vídeos si este falla
+    track: Optional[object] = None  # spotify.Track: sus datos se escriben en el archivo
+    result_path: Optional[str] = None  # archivo final, cuando termina bien
 
 
 def subfolder(music_folder, name, fallback):
@@ -47,14 +50,40 @@ def playlist_items(url, music_folder):
     return title, [DownloadItem(u, t, template, title_hint=t) for u, t in videos]
 
 
+def spotify_folder(music_folder, playlist_name):
+    return os.path.join(music_folder, clean_folder_name(playlist_name or "Spotify"))
+
+
 def spotify_items(matches, music_folder, playlist_name):
-    """Elementos para canciones de un CSV de Spotify, con el nombre 'Título - Artista'."""
-    folder = subfolder(music_folder, playlist_name, "Spotify CSV")
+    """Elementos para canciones de Spotify, con el nombre 'Título - Artista'."""
+    folder = subfolder(music_folder, playlist_name, "Spotify")
     return [
         DownloadItem(m.url, f"{m.track.title} - {m.track.artist}".strip(" -"),
-                     os.path.join(folder, f"{clean_folder_name(m.filename)}.%(ext)s"))
+                     os.path.join(folder, f"{clean_folder_name(m.filename)}.%(ext)s"),
+                     alternatives=[c.url for c in m.alternatives if c.url],
+                     track=m.track)
         for m in matches
     ]
+
+
+def write_spotify_playlist(music_folder, playlist_name, tracks):
+    """Crea '<lista>.m3u8' con las canciones de la lista que hay en la carpeta, en su orden."""
+    from .spotify import existing_files, track_basename
+    folder = spotify_folder(music_folder, playlist_name)
+    existing = existing_files(folder)
+    files = [existing[track_basename(t).lower()] for t in tracks if track_basename(t).lower() in existing]
+    if files:
+        return library.write_m3u(os.path.join(folder, f"{clean_folder_name(playlist_name)}.m3u8"), files)
+    return None
+
+
+def write_items_playlist(items, name):
+    """Crea una lista .m3u8 con lo descargado, en la carpeta de la primera canción."""
+    files = [i.result_path for i in items if i.result_path and os.path.exists(i.result_path)]
+    if files:
+        folder = os.path.dirname(files[0])
+        return library.write_m3u(os.path.join(folder, f"{clean_folder_name(name)}.m3u8"), files)
+    return None
 
 
 @dataclass
@@ -75,6 +104,8 @@ class DownloadJob:
     default_outtmpl: str
     workers: int = 4
     callbacks: JobCallbacks = field(default_factory=JobCallbacks)
+    # Se llama en el hilo de trabajo al terminar (si no se canceló), con todos los elementos
+    after: Optional[Callable[[List[DownloadItem]], None]] = None
 
     def __post_init__(self):
         self._dedupe_names()
@@ -135,6 +166,11 @@ class DownloadJob:
         try:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 list(pool.map(self._process, self.items))
+            if self.after and not self.is_cancelled:
+                try:
+                    self.after(self.items)
+                except Exception:
+                    logger.exception("Fallo al terminar el lote de descargas")
         finally:
             self.callbacks.on_finished(list(self.failed), self.is_cancelled)
 
@@ -158,11 +194,12 @@ class DownloadJob:
                 elif status == "finished":
                     cb.on_progress(share * 100, "postprocessing" if extract else "done", label)
 
-            path = ytdlp.download(item.url, item.outtmpl or self.default_outtmpl,
-                                  self.settings, self.group, on_download)
+            path = self._download_with_fallback(item, on_download)
             if extract and path:
                 audio.postprocess(path, self.settings, self.group,
                                   lambda stage, pct: cb.on_progress(pct, stage, label))
+            if path and os.path.exists(path):
+                item.result_path = path
         except Cancelled:
             return
         except Exception as exc:
@@ -178,3 +215,17 @@ class DownloadJob:
                     self.completed += 1
                     done = self.completed
                 cb.on_item_done(done, self.total)
+
+    def _download_with_fallback(self, item, on_download):
+        """Si el vídeo no se puede descargar (bloqueado, borrado...), prueba los alternativos."""
+        urls = [item.url] + [u for u in item.alternatives if u and u != item.url]
+        for attempt, url in enumerate(urls):
+            try:
+                return ytdlp.download(url, item.outtmpl or self.default_outtmpl,
+                                      self.settings, self.group, on_download)
+            except ytdlp.YtDlpError as exc:
+                if self.is_cancelled or attempt == len(urls) - 1:
+                    raise
+                logger.warning("No se pudo descargar %s (%s); se prueba otro vídeo", url, exc)
+                self.callbacks.on_progress(0.0, "retrying", item.label)
+        return None

@@ -21,6 +21,7 @@ class DownloadController:
         self.job = None
         self.preparing = False
         self._on_success = None
+        self._after = None
         self._last_paint = 0.0
         self._stage = None
         self._build_panel()
@@ -88,14 +89,17 @@ class DownloadController:
             self.app.on_busy_changed()
 
     # ------------------------------------------------------------ API
-    def start(self, prepare, on_success=None):
-        """prepare() se ejecuta en otro hilo y devuelve la lista de DownloadItem."""
+    def start(self, prepare, on_success=None, after=None):
+        """prepare() se ejecuta en otro hilo y devuelve la lista de DownloadItem.
+
+        after(items) se ejecuta en el hilo de descarga al terminar (p. ej. para crear la .m3u8)."""
         if self.busy:
             self.app.toast(self.t("busy_downloading"))
             return
         was_busy = self.busy
         self.preparing = True
         self._on_success = on_success
+        self._after = after
         self.refresh_texts()
         self.title.value = self.t("preparing")
         self.status.value = ""
@@ -131,6 +135,7 @@ class DownloadController:
             settings=cfg.download_settings(),
             default_outtmpl=os.path.join(cfg.music_folder, TITLE_TEMPLATE),
             workers=cfg.threads,
+            after=self._after,
             # Los avisos llegan desde los hilos de descarga: se ejecutan en el bucle de Flet
             callbacks=JobCallbacks(lambda *a: self.app.ui(self._on_progress, *a),
                                    lambda *a: self.app.ui(self._on_item_done, *a),

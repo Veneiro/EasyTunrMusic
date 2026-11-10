@@ -35,7 +35,12 @@ class AppState:
     playlist_url: str = ""
     spotify_loading: bool = False
     spotify_status: str = ""
-    spotify_matches: list = field(default_factory=list)
+    spotify_link: str = ""
+    spotify_matches: list = field(default_factory=list)   # spotify.Match listas para descargar
+    spotify_missing: list = field(default_factory=list)   # spotify.Track sin coincidencia fiable
+    spotify_done: list = field(default_factory=list)      # spotify.Track que ya están en la carpeta
+    spotify_tracks: list = field(default_factory=list)    # la lista completa, en su orden (para la .m3u8)
+    spotify_truncated: bool = False
     spotify_total: int = 0
     spotify_name: str = ""
     ytdlp_version: Optional[str] = None

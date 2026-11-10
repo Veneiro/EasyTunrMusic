@@ -2,11 +2,13 @@
 import logging
 import os
 import re
+import webbrowser
 
 import flet as ft
 
-from core import spotify, ytdlp
-from core.jobs import DownloadItem, playlist_items, spotify_items
+from core import spotify, spotify_link, ytdlp
+from core.jobs import (DownloadItem, playlist_items, spotify_folder, spotify_items,
+                       write_items_playlist, write_spotify_playlist)
 from .widgets import (MUTED, card, empty_state, fmt_duration, item_tile, list_header, page_header)
 
 logger = logging.getLogger(__name__)
@@ -199,13 +201,15 @@ class SearchView:
         folder = self.app.config.music_folder
         not_playlist = self.app.t("error_not_playlist")
 
+        names = {}
+
         def prepare():
-            _title, items = playlist_items(result["url"], folder)
+            names["title"], items = playlist_items(result["url"], folder)
             if not items:
                 raise ValueError(not_playlist)
             return items
 
-        self.app.downloads.start(prepare)
+        self.app.downloads.start(prepare, after=lambda items: write_items_playlist(items, names.get("title") or "Playlist"))
 
 
 # ============================================================== Enlaces
@@ -357,8 +361,10 @@ class PlaylistView:
         folder = self.app.config.music_folder
         not_playlist = t("error_not_playlist")
 
+        names = {}
+
         def prepare():
-            _title, items = playlist_items(url, folder)
+            names["title"], items = playlist_items(url, folder)
             if not items:
                 raise ValueError(not_playlist)
             return items
@@ -367,86 +373,160 @@ class PlaylistView:
             s.playlist_url = ""
             self.app.refresh_view()
 
-        self.app.downloads.start(prepare, on_success)
+        self.app.downloads.start(prepare, on_success,
+                                 after=lambda items: write_items_playlist(items, names.get("title") or "Playlist"))
 
 
 # ============================================================== Spotify
 class SpotifyView:
+    """Importa una playlist, álbum o canción de Spotify (enlace o CSV), deja revisar
+    qué vídeo se ha elegido para cada canción y descarga solo lo que falta."""
+
     def __init__(self, app):
         self.app = app
 
     def build(self):
         t, s = self.app.t, self.app.state
+        self.link = _input(s.spotify_link, t("spotify_link_hint"),
+                           lambda e: setattr(s, "spotify_link", e.control.value),
+                           lambda e: self.load_link(), ft.Icons.LINK)
         self.status = ft.Text(self._status_text(), color=MUTED)
         self.progress = ft.ProgressBar(value=None, visible=s.spotify_loading, bar_height=4, border_radius=2)
-        self.load_btn = ft.FilledButton(content=t("spotify_load"), icon=ft.Icons.UPLOAD_FILE,
-                                        on_click=self.pick_csv, disabled=s.spotify_loading, height=44)
+        self.link_btn = ft.FilledButton(content=t("spotify_load_link"), icon=ft.Icons.DOWNLOAD_FOR_OFFLINE,
+                                        on_click=lambda e: self.load_link(), disabled=s.spotify_loading, height=48)
+        self.load_btn = ft.OutlinedButton(content=t("spotify_load"), icon=ft.Icons.UPLOAD_FILE,
+                                          on_click=self.pick_csv, disabled=s.spotify_loading, height=48)
         self.list = _card_column()
         self._render()
         return ft.Column(
             [
                 page_header(t("spotify_title"), t("spotify_subtitle")),
-                ft.Row([self.load_btn, self.status], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([self.link, self.link_btn, self.load_btn], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                self.status,
                 self.progress,
                 card(self.list, expand=True),
             ],
-            expand=True, spacing=16,
+            expand=True, spacing=12,
         )
 
+    # ---------------------------------------------------------- render
     def _status_text(self):
         s, t = self.app.state, self.app.t
         if s.spotify_loading:
             return s.spotify_status
         if s.spotify_total:
-            return t("spotify_loaded", len(s.spotify_matches), s.spotify_total)
+            return t("spotify_summary", len(s.spotify_matches), len(s.spotify_missing), len(s.spotify_done))
         return ""
 
     def _render(self):
         t, s = self.app.t, self.app.state
-        rows = [item_tile(f"{m.track.title} — {m.track.artist}".strip(" —"), f"→ {m.video_title}",
-                          ft.Icons.MUSIC_NOTE,
-                          ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, tooltip=t("remove"),
-                                        on_click=lambda e, i=i: self._remove(i)))
-                for i, m in enumerate(s.spotify_matches)]
-        body = (ft.ListView(rows, expand=True, spacing=2) if rows
-                else empty_state(ft.Icons.LIBRARY_MUSIC, t("spotify_empty")))
+        rows = []
+        for i, track in enumerate(s.spotify_missing):
+            rows.append(item_tile(
+                self._label(track), t("spotify_not_found"), ft.Icons.WARNING_AMBER_ROUNDED,
+                ft.Row([
+                    ft.TextButton(content=t("spotify_search_manual"), icon=ft.Icons.SEARCH,
+                                  on_click=lambda e, i=i: self._open_chooser(missing_index=i)),
+                    ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, tooltip=t("remove"),
+                                  on_click=lambda e, i=i: self._remove_missing(i)),
+                ], tight=True, spacing=0)))
+        for i, m in enumerate(s.spotify_matches):
+            diff = m.duration_diff
+            detail = f"→ {m.video_title}"
+            if diff is not None:
+                detail += f"  ·  {t('spotify_diff', int(round(diff)))}"
+            rows.append(item_tile(
+                self._label(m.track), detail, ft.Icons.MUSIC_NOTE,
+                ft.Row([
+                    ft.IconButton(icon=ft.Icons.OPEN_IN_NEW, tooltip=t("spotify_preview"),
+                                  on_click=lambda e, url=m.url: webbrowser.open(url)),
+                    ft.IconButton(icon=ft.Icons.SWAP_HORIZ, tooltip=t("spotify_change"),
+                                  on_click=lambda e, i=i: self._open_chooser(match_index=i)),
+                    ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, tooltip=t("remove"),
+                                  on_click=lambda e, i=i: self._remove(i)),
+                ], tight=True, spacing=0)))
+
+        if rows:
+            body = ft.ListView(rows, expand=True, spacing=2)
+        elif s.spotify_total and s.spotify_done:
+            body = empty_state(ft.Icons.CHECK_CIRCLE_OUTLINE, t("spotify_all_downloaded"))
+        else:
+            body = empty_state(ft.Icons.LIBRARY_MUSIC, t("spotify_empty"))
+        footer = [_download_button(self.app, len(s.spotify_matches), lambda e: self._download())]
+        if s.spotify_truncated:
+            footer.insert(0, ft.Row([ft.Icon(ft.Icons.INFO_OUTLINE, size=18, color=ft.Colors.TERTIARY),
+                                     ft.Text(t("spotify_truncated"), size=12, color=MUTED, expand=True)],
+                                    expand=True))
         self.list.controls = [
             list_header(s.spotify_name or t("nav_spotify"), len(rows) or None),
             body,
-            ft.Row([_download_button(self.app, len(rows), lambda e: self._download())],
-                   alignment=ft.MainAxisAlignment.END),
+            ft.Row(footer, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ]
+
+    @staticmethod
+    def _label(track):
+        return f"{track.title} — {track.artist}".strip(" —")
+
+    def _refresh(self):
+        self._render()
+        self.status.value = self._status_text()
+        _safe_update(self.app, self.list)
+        _safe_update(self.app, self.status)
+
+    # ---------------------------------------------------------- carga
+    def load_link(self):
+        t, s = self.app.t, self.app.state
+        text = (s.spotify_link or "").strip()
+        if not spotify_link.is_spotify_link(text):
+            self.app.toast(t("spotify_invalid_link"))
+            return
+        if not s.spotify_loading:
+            self.app.page.run_thread(self._load_worker, text, True)
 
     async def pick_csv(self, e):
         t = self.app.t
         files = await self.app.file_picker.pick_files(
             dialog_title=t("spotify_pick"), allowed_extensions=["csv"],
             file_type=ft.FilePickerFileType.CUSTOM)
-        if files and files[0].path:
-            self.app.page.run_thread(self._load_worker, files[0].path)
+        if files and files[0].path and not self.app.state.spotify_loading:
+            self.app.page.run_thread(self._load_worker, files[0].path, False)
 
-    def _load_worker(self, path):
-        t, s = self.app.t, self.app.state
+    def _load_worker(self, source, is_link):
+        t, s, cfg = self.app.t, self.app.state, self.app.config
         s.spotify_loading = True
-        s.spotify_status = t("spotify_resolving", 0, "…", 0)
+        s.spotify_status = t("spotify_reading")
+        self.progress.value = None
         self._sync_status()
         try:
-            tracks = spotify.read_csv(path)
+            truncated = False
+            if is_link:
+                collection = spotify_link.load(source)
+                name, tracks, truncated = collection.name, collection.tracks, collection.truncated
+            else:
+                tracks = spotify.read_csv(source)
+                name = os.path.splitext(os.path.basename(source))[0] or "Spotify"
             if not tracks:
                 self.app.toast(t("spotify_no_tracks"))
                 return
 
-            def on_progress(done, total, found):
-                s.spotify_status = t("spotify_resolving", done, total, found)
-                self.progress.value = done / total
+            # Sincronización: lo que ya está en la carpeta de la lista no se vuelve a buscar
+            pending, done = spotify.split_downloaded(tracks, spotify_folder(cfg.music_folder, name))
+            s.spotify_status = t("spotify_resolving", 0, len(pending), 0)
+            self._sync_status()
+
+            def on_progress(done_count, total, found):
+                s.spotify_status = t("spotify_resolving", done_count, total, found)
+                self.progress.value = done_count / total if total else None
                 self._sync_status()
 
-            matches = spotify.resolve(tracks, on_progress)
-            s.spotify_name = os.path.splitext(os.path.basename(path))[0] or "Spotify CSV"
-            s.spotify_matches = matches
-            s.spotify_total = len(tracks)
+            matches, missing = spotify.resolve(pending, on_progress) if pending else ([], [])
+            s.spotify_name, s.spotify_tracks, s.spotify_total = name, tracks, len(tracks)
+            s.spotify_matches, s.spotify_missing, s.spotify_done = matches, missing, done
+            s.spotify_truncated = truncated
+        except spotify_link.SpotifyLinkError as exc:
+            self.app.alert(t("error_title"), str(exc), icon=ft.Icons.ERROR_OUTLINE, color=ft.Colors.ERROR)
         except Exception as exc:
-            logger.exception("Fallo al importar el CSV")
+            logger.exception("Fallo al importar de Spotify")
             self.app.alert(t("error_title"), str(exc), icon=ft.Icons.ERROR_OUTLINE, color=ft.Colors.ERROR)
         finally:
             s.spotify_loading = False
@@ -459,18 +539,120 @@ class SpotifyView:
         s = self.app.state
         self.status.value = self._status_text()
         self.progress.visible = s.spotify_loading
-        self.load_btn.disabled = s.spotify_loading
-        for c in (self.status, self.progress, self.load_btn):
+        self.load_btn.disabled = self.link_btn.disabled = s.spotify_loading
+        for c in (self.status, self.progress, self.load_btn, self.link_btn):
             _safe_update(self.app, c)
 
+    # ---------------------------------------------------------- edición
     def _remove(self, index):
         del self.app.state.spotify_matches[index]
-        self._render()
-        self.status.value = self._status_text()
-        _safe_update(self.app, self.list)
-        _safe_update(self.app, self.status)
+        self._refresh()
 
+    def _remove_missing(self, index):
+        del self.app.state.spotify_missing[index]
+        self._refresh()
+
+    def _open_chooser(self, match_index=None, missing_index=None):
+        """Diálogo para elegir otro vídeo (o buscar uno para una canción no encontrada)."""
+        t, s = self.app.t, self.app.state
+        if match_index is not None:
+            match = s.spotify_matches[match_index]
+            track = match.track
+            current = [spotify.Candidate(match.url, match.video_title, duration=match.video_duration, score=1.0)]
+            known = current + list(match.alternatives)
+        else:
+            track = s.spotify_missing[missing_index]
+            known = []
+
+        primary = (track.artist.replace(";", ",").split(",")[0]).strip()
+        query = ft.TextField(value=f"{primary} {track.title}".strip(), hint_text=t("chooser_hint"),
+                             prefix_icon=ft.Icons.SEARCH, expand=True, border_radius=12, filled=True,
+                             border_width=0, on_submit=lambda e: search())
+        spinner = ft.ProgressRing(width=20, height=20, stroke_width=2.5, visible=False)
+        results = ft.ListView(expand=True, spacing=2)
+        candidates = list(known)
+
+        def choose(candidate):
+            new_match = spotify.match_with(track, candidate, candidates)
+            if match_index is not None:
+                s.spotify_matches[match_index] = new_match
+            else:
+                del s.spotify_missing[missing_index]
+                s.spotify_matches.insert(0, new_match)
+            spotify.remember_choice(track, candidate)
+            self.app.page.pop_dialog()
+            self._refresh()
+
+        def row(c):
+            diff = abs(c.duration - track.duration) if c.duration and track.duration else None
+            meta = " · ".join(x for x in [c.channel, fmt_duration(c.duration),
+                                          t("spotify_diff", int(round(diff))) if diff is not None else ""] if x)
+            return ft.ListTile(
+                leading=ft.Icon(ft.Icons.CHECK_CIRCLE if c.valid else ft.Icons.HELP_OUTLINE,
+                                color=ft.Colors.PRIMARY if c.valid else ft.Colors.OUTLINE,
+                                tooltip=t("chooser_valid") if c.valid else t("chooser_unverified")),
+                title=ft.Text(c.title, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                subtitle=ft.Text(meta, size=12, color=MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                trailing=ft.IconButton(icon=ft.Icons.OPEN_IN_NEW, tooltip=t("spotify_preview"),
+                                       on_click=lambda e, url=c.url: webbrowser.open(url)),
+                on_click=lambda e, c=c: choose(c),
+                dense=True, shape=ft.RoundedRectangleBorder(radius=12),
+            )
+
+        def show(message=None):
+            if candidates:
+                results.controls = [row(c) for c in candidates]
+            else:
+                results.controls = [ft.Container(ft.Text(message or t("chooser_empty"), color=MUTED),
+                                                 padding=16, alignment=ft.Alignment.CENTER)]
+            _safe_update(self.app, results)
+
+        def worker(text):
+            try:
+                found = spotify.search_candidates(track, text)
+                seen = {c.url for c in known}
+                candidates[:] = known + [c for c in found if c.url not in seen]
+                message = t("chooser_none")
+            except Exception as exc:
+                logger.exception("Búsqueda manual fallida")
+                message = t("chooser_failed", exc)
+            spinner.visible = False
+            _safe_update(self.app, spinner)
+            show(message)
+
+        def search():
+            text = (query.value or "").strip()
+            if not text:
+                return
+            spinner.visible = True
+            _safe_update(self.app, spinner)
+            self.app.page.run_thread(worker, text)
+
+        show()
+        self.app.page.show_dialog(ft.AlertDialog(
+            title=ft.Column([ft.Text(t("chooser_title")),
+                             ft.Text(self._label(track) + (f"  ·  {fmt_duration(track.duration)}" if track.duration else ""),
+                                     size=13, color=MUTED)], spacing=2),
+            content=ft.Container(
+                ft.Column([ft.Row([query, spinner], vertical_alignment=ft.CrossAxisAlignment.CENTER), results],
+                          spacing=12, expand=True),
+                width=620, height=420),
+            actions=[ft.TextButton(content=t("close"), on_click=lambda e: self.app.page.pop_dialog())],
+        ))
+        if not candidates:
+            search()
+
+    # ---------------------------------------------------------- descarga
     def _download(self):
         s = self.app.state
         matches, name, folder = list(s.spotify_matches), s.spotify_name, self.app.config.music_folder
-        self.app.downloads.start(lambda: spotify_items(matches, folder, name))
+        all_tracks = list(s.spotify_tracks)
+        downloaded = {id(m) for m in matches}
+
+        def on_success():
+            s.spotify_done = s.spotify_done + [m.track for m in matches]
+            s.spotify_matches = [m for m in s.spotify_matches if id(m) not in downloaded]
+            self.app.refresh_view()
+
+        self.app.downloads.start(lambda: spotify_items(matches, folder, name), on_success,
+                                 after=lambda items: write_spotify_playlist(folder, name, all_tracks))

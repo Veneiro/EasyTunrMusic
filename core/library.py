@@ -235,3 +235,21 @@ def delete_track(track: Track):
             os.remove(stem + ext)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------- listas y duplicados
+
+def write_m3u(path, files):
+    """Lista de reproducción .m3u8 (UTF-8) con rutas relativas a su carpeta."""
+    folder = os.path.dirname(os.path.abspath(path))
+    lines = ["#EXTM3U"]
+    for file in files:
+        try:
+            rel = os.path.relpath(file, folder)
+        except ValueError:  # otra unidad
+            rel = file
+        lines.append(rel)
+    os.makedirs(folder, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\r\n") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
