@@ -133,6 +133,7 @@ class EasyTunrApp:
         for dest, (key, _, _) in zip(self.rail.destinations, NAV):
             dest.label = self.t(key)
         self.downloads.refresh_texts()
+        self.player.refresh_texts()
         self.refresh_view()
 
     def apply_theme(self):
@@ -200,6 +201,12 @@ class EasyTunrApp:
             self.downloads.toggle_pause()
         elif key == "o":
             self.open_music_folder()
+        elif key in (" ", "space"):
+            self.player.toggle()
+        elif key == "arrow right":
+            self.player.next()
+        elif key == "arrow left":
+            self.player.previous()
 
 
 def setup_window(page: ft.Page):

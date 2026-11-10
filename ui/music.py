@@ -118,8 +118,12 @@ class MusicView:
             body = empty_state(ft.Icons.SEARCH_OFF, t("library_no_match"))
         else:
             body = empty_state(ft.Icons.HEADPHONES, t("library_empty"))
-        play_all = [ft.FilledButton(content=t("play_all"), icon=ft.Icons.PLAY_ARROW_ROUNDED,
-                                    on_click=lambda e: self.app.player.play_list(tracks, 0))] if rows else []
+        play_all = [
+            ft.OutlinedButton(content=t("shuffle_all"), icon=ft.Icons.SHUFFLE_ROUNDED,
+                              on_click=lambda e: self.app.player.play_list(tracks, None, shuffle=True)),
+            ft.FilledButton(content=t("play_all"), icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                            on_click=lambda e: self.app.player.play_list(tracks, 0, shuffle=False)),
+        ] if rows else []
         self.list.controls = [list_header(t("library_songs"), len(rows) or None, play_all), body]
 
     def _row(self, track, index, tracks, current_path):
@@ -139,6 +143,10 @@ class MusicView:
             items=[
                 ft.PopupMenuItem(content=t("play"), icon=ft.Icons.PLAY_ARROW_ROUNDED,
                                  on_click=lambda e: self.app.player.play_list(tracks, index)),
+                ft.PopupMenuItem(content=t("play_next"), icon=ft.Icons.PLAYLIST_PLAY_ROUNDED,
+                                 on_click=lambda e: self.app.player.play_next(track)),
+                ft.PopupMenuItem(content=t("add_to_queue"), icon=ft.Icons.QUEUE_MUSIC_ROUNDED,
+                                 on_click=lambda e: self.app.player.add_to_queue(track)),
                 ft.PopupMenuItem(content=t("open_external"), icon=ft.Icons.OPEN_IN_NEW,
                                  on_click=lambda e: self._open_external(track)),
                 ft.PopupMenuItem(content=t("show_in_folder"), icon=ft.Icons.FOLDER_OPEN,

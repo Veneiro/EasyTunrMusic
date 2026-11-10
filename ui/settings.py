@@ -308,6 +308,9 @@ class AboutView:
                     shortcut("Ctrl + F", t("shortcut_search")),
                     shortcut("Ctrl + P", t("shortcut_pause")),
                     shortcut("Ctrl + O", t("shortcut_folder")),
+                    shortcut("Ctrl + Espacio" if self.app.config.get("language") == "es" else "Ctrl + Space",
+                             t("shortcut_play")),
+                    shortcut("Ctrl + ← / →", t("shortcut_skip")),
                 ], icon=ft.Icons.KEYBOARD),
                 ft.Row([
                     ft.TextButton(content=t("source_code"), icon=ft.Icons.CODE,

@@ -33,6 +33,8 @@ DEFAULTS = {
     "dynamic_compression": False,
     "sponsorblock": False,
     "lyrics": False,
+    "player_shuffle": False,
+    "player_repeat": "off",     # off | all | one
 }
 
 AUDIO_KEYS = [f.name for f in fields(DownloadSettings)]
