@@ -2,8 +2,9 @@
 # instalador en Windows y se crea la release de GitHub con él. La app
 # instalada la detecta al abrirse y se actualiza sola.
 #
-#   1. Cambia __version__ en core/__init__.py (p. ej. "2.0.1") y haz commit
-#   2. git tag v2.0.1 && git push origin v2.0.1
+#   1. Cambia __version__ en core/__init__.py (p. ej. "2.0.1")
+#   2. Escribe las novedades en release-notes/2.0.1.md
+#   3. Haz commit y push, y luego: git tag v2.0.1 && git push origin v2.0.1
 
 name: Release
 
@@ -40,9 +41,20 @@ jobs:
         shell: pwsh
         run: ./packaging/build.ps1 -RefreshTools
 
+      # Las notas de cada versión van en release-notes/X.Y.Z.md: es el texto que la
+      # app muestra en el aviso de "Nueva versión". Si no existe, se generan solas.
+      - name: Buscar notas de la versión
+        id: notes
+        shell: pwsh
+        run: |
+          $file = "release-notes/$("${{ github.ref_name }}".TrimStart('v')).md"
+          if (Test-Path $file) { "path=$file" >> $env:GITHUB_OUTPUT } else { Write-Warning "No hay $file; se usaran notas automaticas" }
+
       - name: Crear release
         uses: softprops/action-gh-release@v2
         with:
           name: EasyTunrMusic ${{ github.ref_name }}
           files: dist/installer/EasyTunrMusic-Setup-*.exe
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
+          make_latest: true

@@ -15,7 +15,7 @@ There are also some audio settings available for downloads under the "Audio" sec
 - **Run from source:** double-click `EasyTunrMusic.bat`. It sets up Python and the libraries in `runtime\` the first time.
 - **Build the installer:** double-click `build.bat` (needs Python 3.9+ and [Inno Setup 6](https://jrsoftware.org/isinfo.php)). It produces `dist\EasyTunrMusic\` (portable) and `dist\installer\EasyTunrMusic-Setup-X.Y.Z.exe`. The version is set in `core/__init__.py`.
 
-- **Publish a release:** set `__version__` in `core/__init__.py` (e.g. `"2.0.1"`), commit, then `git tag v2.0.1 && git push origin v2.0.1`. The GitHub Actions workflow (`.github/workflows/release.yml`) builds the installer on Windows and creates the GitHub release with it. Edit the release text on GitHub if you like: the app shows it as the "what's new" notes.
+- **Publish a release:** set `__version__` in `core/__init__.py` (e.g. `"2.0.1"`), write the notes in `release-notes/2.0.1.md`, commit and push, then `git tag v2.0.1 && git push origin v2.0.1`. The GitHub Actions workflow (`.github/workflows/release.yml`) builds the installer on Windows and creates the GitHub release with it and those notes, which the app shows as "what's new". Nothing has to be uploaded by hand.
 
 **Automatic updates:** the installed app checks the latest GitHub release every time it opens (can be turned off in Settings). If there is a newer version, it shows its notes and, on "Update now", downloads `EasyTunrMusic-Setup-X.Y.Z.exe`, verifies its SHA-256, runs it silently and reopens itself on the new version. Settings, music and downloaded tools are kept.
 
