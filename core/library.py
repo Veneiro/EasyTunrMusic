@@ -253,3 +253,61 @@ def write_m3u(path, files):
     with open(path, "w", encoding="utf-8", newline="\r\n") as f:
         f.write("\n".join(lines) + "\n")
     return path
+
+
+ARTIST_FILLER = {"the", "official", "oficial", "vevo", "topic", "music", "band", "channel", "tv", "records"}
+
+
+def _song_words(track):
+    """(palabras del título sin el artista ni "(Official Video)", palabras del artista)."""
+    from .spotify import FEAT_RE, NOISE_WORDS, NUMERIC_RE, VERSION_WORDS, _tokens, _video_core
+    title, artist = track.title or "", track.artist or ""
+    if not track.artist:
+        stem = os.path.splitext(os.path.basename(track.path))[0]
+        if " - " in stem:  # "Título - Artista" (Spotify) o "Artista - Título" (YouTube)
+            title = stem
+    artist_words = _tokens(artist) - ARTIST_FILLER
+    raw = _tokens(_video_core(FEAT_RE.sub(" ", title)))
+    # Las versiones (live, remix...) se conservan para no mezclarlas con la original
+    words = {w for w in raw - artist_words if w not in NOISE_WORDS and not NUMERIC_RE.match(w)}
+    words |= (_tokens(title) & VERSION_WORDS) - artist_words
+    return frozenset(words), artist_words, raw
+
+
+def _same_artist(a, b):
+    _, artist_a, raw_a = a
+    _, artist_b, raw_b = b
+    if not artist_a or not artist_b:
+        return True
+    # Comparten artista, o el artista de una aparece en el título de la otra
+    return bool(artist_a & artist_b) or artist_a <= raw_b or artist_b <= raw_a
+
+
+def find_duplicates(tracks, max_diff=3.0):
+    """Grupos de canciones que parecen la misma (mismo título y artista, duración parecida)."""
+    by_title = {}
+    for track in tracks:
+        info = _song_words(track)
+        if info[0]:
+            by_title.setdefault(info[0], []).append((track, info))
+    result = []
+    for items in by_title.values():
+        if len(items) < 2:
+            continue
+        items.sort(key=lambda x: x[0].duration or 0)
+        used = set()
+        for i, (track, info) in enumerate(items):
+            if i in used:
+                continue
+            group = [track]
+            for j in range(i + 1, len(items)):
+                other, other_info = items[j]
+                if j in used or not _same_artist(info, other_info):
+                    continue
+                if track.duration and other.duration and abs(track.duration - other.duration) > max_diff:
+                    continue
+                group.append(other)
+                used.add(j)
+            if len(group) > 1:
+                result.append(group)
+    return sorted(result, key=lambda g: (g[0].artist or "").lower() + (g[0].title or "").lower())

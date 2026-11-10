@@ -43,10 +43,13 @@ class MusicView:
         return ft.Column(
             [
                 ft.Row([
-                    page_header(t("library_title"), folder),
-                    ft.Container(expand=True),
+                    ft.Container(page_header(t("library_title"), folder), expand=True),
                     self.spinner,
                     ft.IconButton(icon=ft.Icons.REFRESH, tooltip=t("refresh"), on_click=lambda e: self.rescan()),
+                    ft.IconButton(icon=ft.Icons.CONTENT_COPY, tooltip=t("library_duplicates"),
+                                  on_click=lambda e: self._show_duplicates()),
+                    ft.IconButton(icon=ft.Icons.PLAYLIST_ADD_CHECK, tooltip=t("library_export_m3u"),
+                                  on_click=self._export_m3u),
                     ft.TextButton(content=t("open_folder"), icon=ft.Icons.FOLDER_OPEN,
                                   on_click=lambda e: self.app.open_music_folder()),
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -207,4 +210,101 @@ class MusicView:
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.ERROR, color=ft.Colors.ON_ERROR)),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
+        ))
+
+    # ---------------------------------------------------------- listas y duplicados
+    async def _export_m3u(self, e):
+        t, s = self.app.t, self.app.state
+        tracks = self._filtered()
+        if not tracks:
+            self.app.toast(t("library_no_match") if s.library_tracks else t("library_empty"))
+            return
+        root = self.app.config.music_folder
+        folder = os.path.join(root, s.library_folder) if s.library_folder else root
+        name = (os.path.basename(s.library_folder) if s.library_folder else t("library_songs")) + ".m3u8"
+        path = await self.app.file_picker.save_file(
+            dialog_title=t("library_export_m3u"), file_name=name, initial_directory=folder,
+            file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=["m3u8", "m3u"])
+        if not path:
+            return
+        if not path.lower().endswith((".m3u8", ".m3u")):
+            path += ".m3u8"
+        try:
+            library.write_m3u(path, [tr.path for tr in tracks])
+            self.app.toast(t("m3u_saved", path))
+        except OSError as exc:
+            self.app.alert(t("error_title"), str(exc), icon=ft.Icons.ERROR_OUTLINE, color=ft.Colors.ERROR)
+
+    def _show_duplicates(self):
+        t, s = self.app.t, self.app.state
+        groups = library.find_duplicates(s.library_tracks or [])
+        if not groups:
+            self.app.toast(t("duplicates_none"))
+            return
+        deleted = []
+
+        def size_mb(path):
+            try:
+                return f"{os.path.getsize(path) / 1048576:.1f} MB"
+            except OSError:
+                return ""
+
+        def dup_row(track):
+            trailing = ft.Container()
+
+            def ask(e):
+                trailing.content = ft.FilledButton(
+                    content=t("delete"), icon=ft.Icons.DELETE_OUTLINE, on_click=confirm,
+                    style=ft.ButtonStyle(bgcolor=ft.Colors.ERROR, color=ft.Colors.ON_ERROR))
+                _safe_update(trailing)
+
+            def confirm(e):
+                try:
+                    self.app.player.forget(track.path)
+                    library.delete_track(track)
+                except OSError as exc:
+                    self.app.toast(str(exc))
+                    return
+                deleted.append(track.path)
+                trailing.content = ft.Text(t("deleted"), color=MUTED, size=12)
+                _safe_update(trailing)
+
+            trailing.content = ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, tooltip=t("delete"), on_click=ask)
+            ext = os.path.splitext(track.path)[1].lstrip(".").upper()
+            meta = " · ".join(x for x in [track.folder or os.path.basename(self.app.config.music_folder),
+                                          fmt_duration(track.duration), size_mb(track.path), ext] if x)
+            return ft.ListTile(
+                title=ft.Text(os.path.basename(track.path), max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                subtitle=ft.Text(meta, size=12, color=MUTED),
+                trailing=trailing, dense=True, shape=ft.RoundedRectangleBorder(radius=12),
+                on_click=lambda e: library.show_in_folder(track.path),
+            )
+
+        controls = []
+        for group in groups:
+            first = group[0]
+            controls.append(ft.Text(" — ".join(x for x in [first.title, first.artist] if x),
+                                    weight=ft.FontWeight.W_600))
+            controls.extend(dup_row(tr) for tr in group)
+            controls.append(ft.Divider(height=8))
+
+        def sync_deleted(e=None):
+            if deleted:
+                gone = set(deleted)
+                deleted.clear()
+                s.library_tracks = [tr for tr in (s.library_tracks or []) if tr.path not in gone]
+                self.app.refresh_view()
+
+        def close(e=None):
+            self.app.page.pop_dialog()
+            sync_deleted()
+
+        self.app.page.show_dialog(ft.AlertDialog(
+            icon=ft.Icon(ft.Icons.CONTENT_COPY, color=ft.Colors.PRIMARY, size=32),
+            title=ft.Text(t("duplicates_title"), text_align=ft.TextAlign.CENTER),
+            content=ft.Container(ft.Column([ft.Text(t("duplicates_text", len(groups)), color=MUTED),
+                                            ft.ListView(controls, expand=True, spacing=2)], expand=True),
+                                 width=620, height=440),
+            actions=[ft.TextButton(content=t("close"), on_click=close)],
+            on_dismiss=sync_deleted,
         ))
