@@ -15,7 +15,7 @@ from .library import PlaylistView, SearchView, SongsView, SpotifyView
 from .settings import AboutView, AudioView, SettingsView
 from .updater import Updater
 from .uithread import call_ui
-from .widgets import app_logo
+from .titlebar import TitleBar, hide_native_title_bar
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +68,14 @@ class EasyTunrApp:
         self.content = ft.Container(expand=True, padding=ft.Padding(32, 28, 32, 16))
         self.rail = self._build_rail()
         page.controls.clear()
-        page.add(ft.Row(
-            [self.rail, ft.VerticalDivider(width=1),
-             ft.Column([self.content, self.downloads.panel], expand=True, spacing=0)],
-            expand=True, spacing=0,
-        ))
+        page.add(ft.Column([
+            TitleBar(page).build(),
+            ft.Row(
+                [self.rail, ft.VerticalDivider(width=1),
+                 ft.Column([self.content, self.downloads.panel], expand=True, spacing=0)],
+                expand=True, spacing=0,
+            ),
+        ], expand=True, spacing=0))
         self.refresh_view()
         if config.get("check_updates"):
             self.updater.check_in_background()
@@ -83,7 +86,7 @@ class EasyTunrApp:
             selected_index=self.index,
             label_type=ft.NavigationRailLabelType.ALL,
             group_alignment=-0.85,
-            leading=ft.Container(app_logo(44), margin=ft.Margin(0, 14, 0, 14)),
+            leading=ft.Container(height=8),  # el logo ya está en la barra de título
             destinations=[ft.NavigationRailDestination(icon=icon, selected_icon=selected, label=self.t(key))
                           for key, icon, selected in NAV],
             on_change=lambda e: self.go(e.control.selected_index),
@@ -188,3 +191,4 @@ def setup_window(page: ft.Page):
     page.window.height = 760
     page.window.min_width = 880
     page.window.min_height = 600
+    hide_native_title_bar(page)  # se usa la barra de título propia (ui/titlebar.py)

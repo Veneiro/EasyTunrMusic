@@ -24,6 +24,12 @@ def _safe_update(app, control):
     app.ui(run)
 
 
+def _card_column():
+    """Columna de un recuadro de lista: estira su contenido a todo el ancho
+    para que el estado vacío y la lista queden centrados en el recuadro."""
+    return ft.Column(expand=True, spacing=6, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+
+
 def _download_button(app, count, on_click):
     return ft.FilledButton(
         content=app.t("download_n", count) if count else app.t("download"),
@@ -53,8 +59,8 @@ class SearchView:
                             lambda e: self.search(), ft.Icons.SEARCH)
         self.query.autofocus = True
         self.spinner = ft.ProgressRing(width=22, height=22, stroke_width=2.5, visible=s.searching)
-        self.results = ft.Column(expand=True, spacing=6)
-        self.queue = ft.Column(expand=True, spacing=6)
+        self.results = _card_column()
+        self.queue = _card_column()
         self._render_results()
         self._render_queue()
         return ft.Column(
@@ -214,7 +220,7 @@ class SongsView:
                           lambda e: self.add(), ft.Icons.LINK)
         self.url.autofocus = True
         self.spinner = ft.ProgressRing(width=22, height=22, stroke_width=2.5, visible=s.checking_link)
-        self.list = ft.Column(expand=True, spacing=6)
+        self.list = _card_column()
         self._render()
         return ft.Column(
             [
@@ -375,7 +381,7 @@ class SpotifyView:
         self.progress = ft.ProgressBar(value=None, visible=s.spotify_loading, bar_height=4, border_radius=2)
         self.load_btn = ft.FilledButton(content=t("spotify_load"), icon=ft.Icons.UPLOAD_FILE,
                                         on_click=self.pick_csv, disabled=s.spotify_loading, height=44)
-        self.list = ft.Column(expand=True, spacing=6)
+        self.list = _card_column()
         self._render()
         return ft.Column(
             [

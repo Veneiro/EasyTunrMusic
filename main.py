@@ -11,6 +11,7 @@ from ui import theme
 from ui.app import EasyTunrApp, setup_window
 from ui.i18n import I18n
 from ui.uithread import call_ui
+from ui.titlebar import TitleBar
 from ui.widgets import app_logo
 
 
@@ -41,7 +42,10 @@ def show_setup(page, config, on_ready):
         alignment=ft.MainAxisAlignment.CENTER,
         spacing=16,
     )
-    page.add(ft.Container(body, expand=True, alignment=ft.Alignment.CENTER))
+    page.add(ft.Column([
+        TitleBar(page).build(),
+        ft.Container(body, expand=True, alignment=ft.Alignment.CENTER),
+    ], expand=True, spacing=0))
 
     last_paint = [0.0]
 

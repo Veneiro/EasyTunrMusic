@@ -47,6 +47,7 @@ def empty_state(icon, text):
         ),
         expand=True,
         padding=24,
+        alignment=ft.Alignment.CENTER,
     )
 
 
