@@ -170,14 +170,17 @@ class SettingsView:
         ], icon=ft.Icons.DOWNLOAD)
 
         version = s.ytdlp_version
-        self.version_text = ft.Text(t("ytdlp_version", version) if version else t("ytdlp_unknown"))
+        # Sin wrap: un elemento expandible dentro de una fila con wrap (Wrap de Flutter)
+        # falla al maquetar y la app empaquetada lo pinta como un rectángulo gris.
+        self.version_text = ft.Text(t("ytdlp_version", version) if version else t("ytdlp_unknown"),
+                                    expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
         self.update_btn = ft.OutlinedButton(content=t("check_updates"), icon=ft.Icons.REFRESH,
                                             on_click=lambda e: self._check_updates())
         components = section(t("tools_section"), [
-            ft.Row([ft.Icon(ft.Icons.EXTENSION, color=MUTED), self.version_text, ft.Container(expand=True),
+            ft.Row([ft.Icon(ft.Icons.EXTENSION, color=MUTED), self.version_text,
                     self.update_btn,
                     ft.TextButton(content=t("open_logs"), on_click=lambda e: os.startfile(paths.log_file()))],
-                   wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], icon=ft.Icons.BUILD_OUTLINED)
 
         updates_section = section(t("updates_section"), [
