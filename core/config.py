@@ -64,6 +64,14 @@ class Config:
             self.data["theme_mode"] = "dark" if self.data.get("theme") == "darkly" else "system"
         for key in ("threads", "bitrate", "bit_depth", "sample_rate"):
             self.data[key] = str(self.data.get(key) or DEFAULTS[key])
+        # Las versiones antiguas guardaban la carpeta "Música" junto al programa, que
+        # instalado queda en Program Files y no se puede escribir sin ser administrador.
+        folder = self.data.get("music_folder")
+        if folder and not paths.is_usable_music_folder(folder):
+            logger.warning("Carpeta de música no válida (%s); se usa %s", folder, paths.default_music_folder())
+            self.data["music_folder"] = None
+            if "music_folder" in self._stored_keys():
+                self.save()
 
     def _stored_keys(self):
         try:

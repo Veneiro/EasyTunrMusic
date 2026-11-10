@@ -223,7 +223,9 @@ class SettingsView:
     async def _pick_folder(self, e):
         folder = await self.app.file_picker.get_directory_path(
             dialog_title=self.app.t("destination"), initial_directory=self.app.config.music_folder)
-        if folder:
+        if folder and not paths.is_usable_music_folder(folder):
+            self.app.toast(self.app.t("folder_not_writable"))
+        elif folder:
             self.app.config.set("music_folder", folder)
             self.app.refresh_view()
 
