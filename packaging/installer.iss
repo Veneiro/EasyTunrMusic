@@ -53,7 +53,16 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; Actualizacion lanzada desde la propia app (/SILENT /UPDATE=1): volver a abrirla al terminar.
+; Una instalacion silenciosa normal (p. ej. desatendida) no abre la app.
+Filename: "{app}\{#AppExe}"; Flags: nowait skipifnotsilent; Check: IsAppUpdate
 
 [UninstallDelete]
 ; Herramientas descargadas/actualizadas por la app (no toca la musica ni la configuracion)
 Type: filesandordirs; Name: "{localappdata}\{#AppName}\bin"
+
+[Code]
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;

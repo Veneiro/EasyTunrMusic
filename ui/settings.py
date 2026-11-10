@@ -5,7 +5,7 @@ import webbrowser
 import flet as ft
 
 from core import __version__, paths, tools
-from core.config import AUDIO_KEYS
+from core.config import AUDIO_KEYS, GENERAL_KEYS
 from core.settings import LOSSY_CODECS
 from .theme import ACCENTS
 from .widgets import MUTED, app_logo, card, dropdown, page_header, section, setting_switch
@@ -180,6 +180,16 @@ class SettingsView:
                    wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], icon=ft.Icons.BUILD_OUTLINED)
 
+        updates_section = section(t("updates_section"), [
+            ft.Row([ft.Icon(ft.Icons.VERIFIED_OUTLINED, color=MUTED),
+                    ft.Text(t("current_version", __version__)), ft.Container(expand=True),
+                    ft.OutlinedButton(content=t("check_now"), icon=ft.Icons.REFRESH,
+                                      on_click=lambda e: self.app.updater.check_in_background(manual=True))],
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            setting_switch(t("check_updates_startup"), None, cfg.get("check_updates"),
+                           lambda e: cfg.set("check_updates", e.control.value)),
+        ], icon=ft.Icons.SYSTEM_UPDATE_ALT)
+
         if version is None:
             self.app.page.run_thread(self._load_version)
 
@@ -188,7 +198,7 @@ class SettingsView:
                 ft.Row([page_header(t("settings_title")), ft.Container(expand=True),
                         ft.TextButton(content=t("reset"), icon=ft.Icons.RESTART_ALT,
                                       on_click=lambda e: self._reset())]),
-                appearance, downloads, components,
+                appearance, downloads, updates_section, components,
             ],
             spacing=16, scroll=ft.ScrollMode.AUTO, expand=True,
         )
@@ -251,7 +261,7 @@ class SettingsView:
     def _reset(self):
         cfg = self.app.config
         language_before = cfg.get("language")
-        cfg.reset(["language", "theme_mode", "accent", "threads", "music_folder"])
+        cfg.reset(GENERAL_KEYS)
         self.app.apply_theme()
         self.app.toast(self.app.t("reset_done"))
         if cfg.get("language") != language_before:

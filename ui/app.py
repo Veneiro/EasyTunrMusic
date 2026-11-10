@@ -13,6 +13,7 @@ from .downloads import DownloadController
 from .i18n import I18n
 from .library import PlaylistView, SearchView, SongsView, SpotifyView
 from .settings import AboutView, AudioView, SettingsView
+from .updater import Updater
 from .uithread import call_ui
 from .widgets import app_logo
 
@@ -57,6 +58,7 @@ class EasyTunrApp:
         self.state = AppState()
         self.file_picker = ft.FilePicker()
         self.downloads = DownloadController(self)
+        self.updater = Updater(self)
         self.views = [SearchView(self), SongsView(self), PlaylistView(self), SpotifyView(self),
                       AudioView(self), SettingsView(self), AboutView(self)]
         self.index = 0
@@ -72,6 +74,8 @@ class EasyTunrApp:
             expand=True, spacing=0,
         ))
         self.refresh_view()
+        if config.get("check_updates"):
+            self.updater.check_in_background()
 
     # ---------------------------------------------------------- estructura
     def _build_rail(self):

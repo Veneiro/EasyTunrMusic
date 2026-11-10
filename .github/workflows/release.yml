@@ -1,0 +1,48 @@
+# Publica una versión nueva: al subir una etiqueta vX.Y.Z se compila el
+# instalador en Windows y se crea la release de GitHub con él. La app
+# instalada la detecta al abrirse y se actualiza sola.
+#
+#   1. Cambia __version__ en core/__init__.py (p. ej. "2.0.1") y haz commit
+#   2. git tag v2.0.1 && git push origin v2.0.1
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Comprobar que la etiqueta coincide con la versión
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $code = (Select-String -Path core/__init__.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          if ($tag -ne $code) { throw "La etiqueta ($tag) no coincide con __version__ ($code) en core/__init__.py" }
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Compilar instalador
+        shell: pwsh
+        run: ./packaging/build.ps1 -RefreshTools
+
+      - name: Crear release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: EasyTunrMusic ${{ github.ref_name }}
+          files: dist/installer/EasyTunrMusic-Setup-*.exe
+          generate_release_notes: true

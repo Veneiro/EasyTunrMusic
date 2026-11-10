@@ -14,6 +14,7 @@ DEFAULTS = {
     "theme_mode": "system",      # system | light | dark
     "accent": "orange",
     "threads": "4",
+    "check_updates": True,
     "music_folder": None,        # None -> paths.default_music_folder()
     "codec": "mp3",
     "bitrate": "192",
@@ -32,7 +33,7 @@ DEFAULTS = {
 }
 
 AUDIO_KEYS = [f.name for f in fields(DownloadSettings)]
-GENERAL_KEYS = ["language", "theme_mode", "accent", "threads", "music_folder"]
+GENERAL_KEYS = ["language", "theme_mode", "accent", "threads", "music_folder", "check_updates"]
 
 _LEGACY_LANGUAGES = {"Español": "es", "Spanish": "es", "English": "en", "Inglés": "en"}
 

@@ -15,6 +15,10 @@ There are also some audio settings available for downloads under the "Audio" sec
 - **Run from source:** double-click `EasyTunrMusic.bat`. It sets up Python and the libraries in `runtime\` the first time.
 - **Build the installer:** double-click `build.bat` (needs Python 3.9+ and [Inno Setup 6](https://jrsoftware.org/isinfo.php)). It produces `dist\EasyTunrMusic\` (portable) and `dist\installer\EasyTunrMusic-Setup-X.Y.Z.exe`. The version is set in `core/__init__.py`.
 
+- **Publish a release:** set `__version__` in `core/__init__.py` (e.g. `"2.0.1"`), commit, then `git tag v2.0.1 && git push origin v2.0.1`. The GitHub Actions workflow (`.github/workflows/release.yml`) builds the installer on Windows and creates the GitHub release with it. Edit the release text on GitHub if you like: the app shows it as the "what's new" notes.
+
+**Automatic updates:** the installed app checks the latest GitHub release every time it opens (can be turned off in Settings). If there is a newer version, it shows its notes and, on "Update now", downloads `EasyTunrMusic-Setup-X.Y.Z.exe`, verifies its SHA-256, runs it silently and reopens itself on the new version. Settings, music and downloaded tools are kept.
+
 The app keeps its external tools (yt-dlp, FFmpeg, Deno) in `%LOCALAPPDATA%\EasyTunrMusic\bin`. It downloads any that are missing on first launch, and checks for yt-dlp updates every 12 hours, so YouTube changes don't require a new release. Logs go to `%LOCALAPPDATA%\EasyTunrMusic\easytunrmusic.log`.
 
 Code layout: `core/` holds all download, audio, configuration and Spotify-import logic with no GUI dependency; `ui/` is the Flet interface on top of it; `main.py` starts the app.

@@ -106,7 +106,7 @@ def missing_tools():
 
 # ---------------------------------------------------------------- descargar
 
-def _download(url, dest, on_progress=None):
+def download_file(url, dest, on_progress=None):
     """Descarga a un temporal y lo mueve al final, para no dejar archivos a medias."""
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -153,7 +153,7 @@ def install_tool(name, on_progress=None):
     """Descarga una herramienta a la carpeta del usuario."""
     dest_dir = paths.tools_dir()
     if name == "yt-dlp":
-        _download(YTDLP_URL, os.path.join(dest_dir, "yt-dlp.exe"), on_progress)
+        download_file(YTDLP_URL, os.path.join(dest_dir, "yt-dlp.exe"), on_progress)
         return
     url, files = {
         "ffmpeg": (FFMPEG_URL, ("ffmpeg.exe", "ffprobe.exe")),
@@ -161,7 +161,7 @@ def install_tool(name, on_progress=None):
     }[name]
     zip_path = os.path.join(dest_dir, f"{name}.zip")
     try:
-        _download(url, zip_path, on_progress)
+        download_file(url, zip_path, on_progress)
         _extract_from_zip(zip_path, files, dest_dir)
     finally:
         if os.path.exists(zip_path):
