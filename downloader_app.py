@@ -5,19 +5,15 @@ from ttkbootstrap.constants import *
 import os
 import json
 import csv
-from queue import Queue
+from queue import Queue, Empty
 from threading import Thread
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from translations import TRANSLATIONS
 from ui_components import create_search_tab, create_songs_tab, create_playlist_tab, create_spotify_csv_tab, create_audio_options_tab, create_options_tab, create_about_tab
-from download_manager import download, download_search_songs, download_search_playlist, start_songs_download, start_playlist_download
-from utils import clean_folder_name
-import yt_dlp
+from download_manager import download_search_playlist, start_songs_download, start_playlist_download, start_spotify_download
+from core import paths, ytdlp
 import logging
 import re
-import sys
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DownloaderApp:
     # Valores predeterminados para la configuración
@@ -25,7 +21,7 @@ class DownloaderApp:
         "language": "es",
         "theme": "litera",
         "threads": "4",
-        "music_folder": None,  # Se establecerá dinámicamente en __init__ usando script_dir
+        "music_folder": None,  # Se establece en __init__ con paths.default_music_folder()
         "codec": "mp3",
         "bitrate": "192",
         "bit_depth": "16",
@@ -45,11 +41,8 @@ class DownloaderApp:
         self.root = root
 
         # Establecer el ícono de la ventana
-        if hasattr(sys, '_MEIPASS'):
-            icon_path = os.path.join(sys._MEIPASS, "icon.ico")
-        else:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
-        self.root.iconbitmap(icon_path)
+        self.icon_path = paths.resource_path("icon.ico")
+        self.root.iconbitmap(self.icon_path)
 
         # Tamaño de la ventana
         window_width = 980
@@ -67,28 +60,22 @@ class DownloaderApp:
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.resizable(False, False)
 
-        # Inicializar script_dir
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Directorio persistente para la configuración
+        self.config_dir = paths.config_dir()
 
-        # Crear un directorio persistente para la configuración
-        self.config_dir = os.path.join(os.path.expanduser("~"), ".easytunrmusic")
-        if not os.path.exists(self.config_dir):
-            os.makedirs(self.config_dir)
-        
         # Initialize music folder and linked variable *before* loading config
-        self.music_folder = os.path.join(self.script_dir, "Música")
+        self.music_folder = paths.default_music_folder()
         self.music_folder_var = tk.StringVar(value=self.music_folder)
         self.DEFAULT_CONFIG["music_folder"] = self.music_folder
-        
+
         # Load configuration
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.load_config()
 
         # Update music folder from config (if available)
-        self.music_folder = self.config.get("music_folder", os.path.join(self.script_dir, "Música"))
+        self.music_folder = self.config.get("music_folder") or paths.default_music_folder()
         self.music_folder_var.set(self.music_folder)
-        if not os.path.exists(self.music_folder):
-            os.makedirs(self.music_folder)
+        self._ensure_music_folder()
 
         # Map legacy language names to codes
         self.language_map = {
@@ -140,12 +127,12 @@ class DownloaderApp:
         self.failed_videos = []
         self.global_progress_var = tk.DoubleVar(value=0.0)
         self.video_progress_var = tk.DoubleVar(value=0.0)
-        self.download_queue = Queue()
+        self._ui_queue = Queue()  # actualizaciones de la UI enviadas desde otros hilos
         self.total_videos = 0
         self.completed_videos = 0
         self.is_paused = False
         self.is_cancelled = False
-        self.executor = None
+        self.current_job = None
         self.is_playlist = False
         self.song_urls = []
         self.search_song_urls = []
@@ -174,7 +161,7 @@ class DownloaderApp:
         # Create main interface with tabs
         self.notebook = ttk.Notebook(self.root, bootstyle=PRIMARY)
         self.notebook.pack(padx=20, pady=20, fill='both', expand=True)
-        
+
         # Create tabs
         logging.debug("Creating tabs")
         self.search_tab = create_search_tab(self)
@@ -229,10 +216,28 @@ class DownloaderApp:
         # Asociar la tecla Enter con la función correspondiente
         self.root.bind("<Return>", self.handle_enter_key)
 
+        self._drain_ui_queue()
+
+    def post(self, fn):
+        """Programa fn en el hilo de tkinter. Seguro de llamar desde cualquier hilo."""
+        self._ui_queue.put(fn)
+
+    def _drain_ui_queue(self):
+        try:
+            while True:
+                fn = self._ui_queue.get_nowait()
+                try:
+                    fn()
+                except Exception:
+                    logging.exception("Error al actualizar la interfaz")
+        except Empty:
+            pass
+        self.root.after(50, self._drain_ui_queue)
+
     def reset_to_defaults(self, scope="all"):
         """Restaura la configuración a los valores predeterminados."""
         logging.debug(f"Resetting configuration to defaults (scope: {scope})")
-        
+
         if scope in ["all", "general"]:
             self.language_var.set(self.DEFAULT_CONFIG["language"])
             self.theme_var.set(self.DEFAULT_CONFIG["theme"])
@@ -300,7 +305,7 @@ class DownloaderApp:
         """Muestra el spinner de carga."""
         self.loading_spinner.lift()  # Trae el spinner al frente
         self.loading_spinner.start()  # Inicia la animación del spinner
-    
+
     def hide_spinner(self):
         """Oculta el spinner de carga."""
         self.loading_spinner.stop()  # Detiene la animación del spinner
@@ -327,13 +332,16 @@ class DownloaderApp:
                     self.config = json.load(f)
         except Exception as e:
             logging.error(f"Error loading config: {e}")
-        
-        # Load music folder from configuration
-        default_music_folder = os.path.join(self.script_dir, "Música")
-        self.music_folder = self.config.get("music_folder", default_music_folder)
-        self.music_folder_var.set(self.music_folder)  # Error: music_folder_var doesn't exist yet
-        if not os.path.exists(self.music_folder):
-            os.makedirs(self.music_folder)
+
+    def _ensure_music_folder(self):
+        """Crea la carpeta de destino; si no se puede (p. ej. disco quitado), vuelve a la predeterminada."""
+        try:
+            os.makedirs(self.music_folder, exist_ok=True)
+        except OSError:
+            logging.warning("No se puede usar la carpeta %s; se usa la predeterminada", self.music_folder)
+            self.music_folder = paths.default_music_folder()
+            self.music_folder_var.set(self.music_folder)
+            os.makedirs(self.music_folder, exist_ok=True)
 
     def save_config(self):
         """Guarda la configuración en config.json."""
@@ -370,9 +378,9 @@ class DownloaderApp:
             logging.error(f"Language {lang} not found in TRANSLATIONS, defaulting to 'es'")
             lang = 'es'
             self.language_var.set(lang)
-    
+
         self.root.title(TRANSLATIONS[lang]['title'])
-    
+
         # Actualizar títulos de las pestañas
         self.notebook.tab(self.search_tab, text=TRANSLATIONS[lang]['search_tab'])
         self.notebook.tab(self.songs_tab, text=TRANSLATIONS[lang]['songs_tab'])
@@ -381,7 +389,7 @@ class DownloaderApp:
         self.notebook.tab(self.audio_tab, text=TRANSLATIONS[lang]['audio_tab'])
         self.notebook.tab(self.options_tab, text=TRANSLATIONS[lang]['options_tab'])
         self.notebook.tab(self.about_tab, text=TRANSLATIONS[lang]['about_tab'])
-    
+
         # Actualizar textos de los widgets
         self._update_widget_text(self.search_tab, lang)
         self._update_widget_text(self.songs_tab, lang)
@@ -390,13 +398,13 @@ class DownloaderApp:
         self._update_widget_text(self.audio_tab, lang)
         self._update_widget_text(self.options_tab, lang)
         self._update_widget_text(self.about_tab, lang)
-    
+
         # Actualizar etiquetas de estado
         self.search_status_label.config(text=TRANSLATIONS[lang]['status_waiting_search'])
         self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs'])
         self.playlist_status_label.config(text=TRANSLATIONS[lang]['status_waiting_playlist'])
         self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify'])
-    
+
         # Reaplicar tema para garantizar consistencia
         self.update_theme()
 
@@ -444,7 +452,7 @@ class DownloaderApp:
         logging.debug(f"Updating theme to: {theme}")
         self.style.theme_use(theme)
         self.root.configure(bg=self.style.colors.bg)
-        
+
         # Reaplicar configuraciones de fuente personalizadas
         self.style.configure('TLabel', font=('Segoe UI', 10))
         self.style.configure('TButton', font=('Segoe UI', 10))
@@ -452,7 +460,7 @@ class DownloaderApp:
         self.style.configure('TCombobox', font=('Segoe UI', 10))
         self.style.configure('TCheckbutton', font=('Segoe UI', 10))
         self.style.configure('TNotebook.Tab', font=('Segoe UI', 12))  # Pestañas más grandes
-        
+
         # Actualizar colores de fondo para las pestañas y widgets
         for tab in [self.search_tab, self.songs_tab, self.playlist_tab, self.audio_tab, self.options_tab]:
             tab.configure(bg=self.style.colors.bg)
@@ -485,7 +493,7 @@ class DownloaderApp:
     def create_progress_window(self, num_videos):
         """Create floating window for progress bars."""
         self.progress_window = tk.Toplevel(self.root)
-        self.progress_window.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
+        self.progress_window.iconbitmap(self.icon_path)
         lang = self.language_var.get()
         self.progress_window.title(TRANSLATIONS[lang]['progress_title'])
         self.progress_window.geometry("500x250")
@@ -545,6 +553,9 @@ class DownloaderApp:
     def show_result_message(self, message_type, message):
         """Show success, warning, or error message in floating window."""
         lang = self.language_var.get()
+        # Los avisos de validación pueden llegar sin ventana de progreso abierta
+        if not self.progress_window or not self.progress_window.winfo_exists():
+            self.create_progress_window(1)
         # Clear existing content
         for widget in self.content_frame.winfo_children():
             widget.destroy()
@@ -585,7 +596,14 @@ class DownloaderApp:
         self.root.lift()  # Trae la ventana principal al frente
 
     def toggle_pause(self):
+        job = self.current_job
+        if job is None:
+            return
         self.is_paused = not self.is_paused
+        if self.is_paused:
+            job.pause()
+        else:
+            job.resume()
         lang = self.language_var.get()
         pause_text = TRANSLATIONS[lang]['resume_button'] if self.is_paused else TRANSLATIONS[lang]['pause_button']
         self.songs_pause_button.configure(text=pause_text)
@@ -610,12 +628,24 @@ class DownloaderApp:
             self.progress_status_label.config(text=f"{TRANSLATIONS[lang]['progress_status'].split(':')[0]}: {status_text}")
 
     def cancel_download(self):
+        job = self.current_job
+        if job is None:
+            return
         self.is_cancelled = True
-        if self.executor:
-            self.executor._threads.clear()
+        job.cancel()  # mata los procesos de yt-dlp/ffmpeg en curso
+        self.current_job = None
         self.finalize_download(error_message=TRANSLATIONS[self.language_var.get()]['error_title'])
 
     def finalize_download(self, error_message=None):
+        self.hide_spinner()
+        if self.is_paused:
+            self.is_paused = False
+            pause_text = TRANSLATIONS[self.language_var.get()]['pause_button']
+            for name in ('songs_pause_button', 'playlist_pause_button', 'spotify_pause_button'):
+                button = getattr(self, name, None)
+                if button is not None:
+                    button.configure(text=pause_text)
+                    self.widget_translation_keys[str(id(button))] = 'pause_button'
         self.songs_download_button.configure(state='normal')
         self.songs_pause_button.configure(state='disabled')
         self.songs_cancel_button.configure(state='disabled')
@@ -648,45 +678,38 @@ class DownloaderApp:
         if not query:
             self.show_result_message('error', TRANSLATIONS[lang]['error_no_query'])
             return
-    
+
         self.search_results = []
         self.search_status_label.config(text=TRANSLATIONS[lang]['status_searching'])
         self.show_spinner()  # Mostrar spinner
-    
+
         def search():
             try:
-                ydl_opts = {
-                    'quiet': True,
-                    'extract_flat': True,
-                    'force_generic_extractor': False,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    results = ydl.extract_info(f"ytsearch10:{query}", download=False)
-                    if 'entries' not in results:
-                        self.root.after(0, lambda: self.search_status_label.config(text=TRANSLATIONS[lang]['status_search_error']))
-                        self.root.after(0, lambda: self.show_result_message('warning', TRANSLATIONS[lang]['status_search_error']))
-                        return
-    
-                    for entry in results['entries']:
-                        title = entry.get('title', 'Sin título')
-                        url = entry.get('url', entry.get('webpage_url', ''))
-                        is_playlist = entry.get('ie_key', '').lower() in ['youtubeplaylist'] or 'playlist?list=' in url
-                        self.search_results.append((title, url, is_playlist))
-    
-                    self.root.after(0, self.show_results_window)
-                    pass
+                entries = ytdlp.search(query, 10)
+                if not entries:
+                    self.post(lambda: self.search_status_label.config(text=TRANSLATIONS[lang]['status_search_error']))
+                    self.post(lambda: self.show_result_message('warning', TRANSLATIONS[lang]['status_search_error']))
+                    return
+                results = [(entry.get('title') or 'Sin título', ytdlp.entry_url(entry), ytdlp.is_playlist_entry(entry))
+                           for entry in entries]
+
+                def show():
+                    self.search_results = results
+                    self.show_results_window()
+                self.post(show)
             except Exception as e:
-                self.root.after(0, lambda: self.search_status_label.config(text=TRANSLATIONS[lang]['status_search_error']))
-                self.root.after(0, lambda: self.show_result_message('error', f"{TRANSLATIONS[lang]['error_process_url'].format(str(e))}"))
+                msg = TRANSLATIONS[lang]['error_process_url'].format(str(e))
+                self.post(lambda: self.search_status_label.config(text=TRANSLATIONS[lang]['status_search_error']))
+                self.post(lambda: self.show_result_message('error', msg))
             finally:
-                self.root.after(0, self.hide_spinner) 
-    
-        Thread(target=search).start()
+                self.post(self.hide_spinner)
+
+        Thread(target=search, daemon=True).start()
 
     def show_results_window(self):
         lang = self.language_var.get()
         results_window = tk.Toplevel(self.root)
-        results_window.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
+        results_window.iconbitmap(self.icon_path)
         results_window.title(TRANSLATIONS[lang]['results_title'])
         results_window.geometry("500x400")
         results_window.resizable(False, False)
@@ -770,38 +793,31 @@ class DownloaderApp:
 
         def process_song():
             try:
-                ydl_opts = {
-                    'quiet': True,
-                    'extract_flat': True,
-                    'force_generic_extractor': False,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    is_playlist = info.get('ie_key', '').lower() in ['youtubeplaylist'] or 'playlist?list=' in url
-                    if is_playlist or 'entries' in info:
-                        self.root.after(0, lambda: self.show_result_message('error', TRANSLATIONS[lang]['error_playlist_in_songs']))
-                        self.root.after(0, lambda: self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs']))
-                        return
-    
-                    title = info.get('title', 'Sin título' if lang == 'es' else 'No title')
-                    author = info.get('uploader', info.get('channel', 'Desconocido' if lang == 'es' else 'Unknown'))
-                    display_text = f"{title} - {author}"
-                    self.root.after(0, lambda: self.song_urls.append((url, title, author)))
-                    self.root.after(0, lambda: self.song_listbox.insert(tk.END, display_text))
-                    self.root.after(0, lambda: self.song_entry_var.set(""))
-                    self.root.after(0, lambda: self.songs_status_label.config(
-                        text=TRANSLATIONS[lang]['status_song_added'].format(len(self.song_urls))))
-                    self.root.after(0, self.update_quality_frame)
-                    pass
-            except Exception as e:
-                self.root.after(0, lambda: self.show_result_message('error',
-                                                                    TRANSLATIONS[lang]['error_process_url'].format(str(e))))
-                self.root.after(0, lambda: self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs']))
-            finally:
-                self.root.after(0, lambda: self.add_button.configure(state='normal'))
-                self.root.after(0, self.hide_spinner)  # Ocultar spinner
+                info = ytdlp.extract_info(url, flat=True)
+                if ytdlp.is_playlist_entry(info) or 'playlist?list=' in url or 'entries' in info:
+                    self.post(lambda: self.show_result_message('error', TRANSLATIONS[lang]['error_playlist_in_songs']))
+                    self.post(lambda: self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs']))
+                    return
 
-        Thread(target=process_song).start()
+                title = info.get('title') or ('Sin título' if lang == 'es' else 'No title')
+                author = info.get('uploader') or info.get('channel') or ('Desconocido' if lang == 'es' else 'Unknown')
+
+                def add_to_list():
+                    self.song_urls.append((url, title, author))
+                    self.song_listbox.insert(tk.END, f"{title} - {author}")
+                    self.song_entry_var.set("")
+                    self.songs_status_label.config(text=TRANSLATIONS[lang]['status_song_added'].format(len(self.song_urls)))
+                    self.update_quality_frame()
+                self.post(add_to_list)
+            except Exception as e:
+                msg = TRANSLATIONS[lang]['error_process_url'].format(str(e))
+                self.post(lambda: self.show_result_message('error', msg))
+                self.post(lambda: self.songs_status_label.config(text=TRANSLATIONS[lang]['status_waiting_songs']))
+            finally:
+                self.post(lambda: self.add_button.configure(state='normal'))
+                self.post(self.hide_spinner)  # Ocultar spinner
+
+        Thread(target=process_song, daemon=True).start()
 
     def load_spotify_csv(self):
         lang = self.language_var.get()
@@ -872,7 +888,7 @@ class DownloaderApp:
                     rows = list(reader)
 
                 if not rows:
-                    self.root.after(0, lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
+                    self.post(lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
                     return
 
                 title_key = next((k for k in (reader.fieldnames or []) if k.lower().strip() in ['track name', 'name', 'title', 'track']), None)
@@ -881,55 +897,61 @@ class DownloaderApp:
                 if not title_key and reader.fieldnames:
                     title_key = reader.fieldnames[0]
 
+                tracks = []
+                for row in rows:
+                    title = (row.get(title_key, '') if title_key else '').strip()
+                    artist = (row.get(artist_key, '') if artist_key else '').strip()
+                    if not title:
+                        continue
+                    duration_seconds = None
+                    if duration_key:
+                        raw_duration = (row.get(duration_key, '') or '').strip()
+                        if raw_duration.isdigit():
+                            duration_seconds = int(raw_duration) / 1000 if int(raw_duration) > 1000 else int(raw_duration)
+                    tracks.append((title, artist, duration_seconds))
+
+                def best_match(track):
+                    """Busca la canción en YouTube y devuelve (puntuación, entrada) o None."""
+                    title, artist, duration_seconds = track
+                    try:
+                        entries = ytdlp.search(f"\"{title}\" {artist} official audio".strip(), 8)
+                    except Exception:
+                        logging.exception("Búsqueda fallida para %s - %s", title, artist)
+                        return None
+                    scored = [(score_candidate(e, title, artist, duration_seconds), e) for e in entries]
+                    return max(scored, key=lambda item: item[0]) if scored else None
+
+                # Varias búsquedas a la vez; el resultado mantiene el orden del CSV
+                matches = [None] * len(tracks)
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = {pool.submit(best_match, track): i for i, track in enumerate(tracks)}
+                    for done_count, future in enumerate(as_completed(futures), start=1):
+                        matches[futures[future]] = future.result()
+                        found = sum(1 for m in matches if m and m[0] >= 30)
+                        self.post(lambda i=done_count, total=len(tracks), f=found: self.spotify_status_label.config(
+                            text=TRANSLATIONS[lang]['status_spotify_resolving'].format(i, total, f)
+                        ))
+
                 resolved = []
                 used_filenames = {}
-                ydl_opts = {
-                    'quiet': True,
-                    'extract_flat': True,
-                    'force_generic_extractor': False,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    for index, row in enumerate(rows, start=1):
-                        title = (row.get(title_key, '') if title_key else '').strip()
-                        artist = (row.get(artist_key, '') if artist_key else '').strip()
-                        if not title:
-                            continue
-
-                        duration_seconds = None
-                        if duration_key:
-                            raw_duration = (row.get(duration_key, '') or '').strip()
-                            if raw_duration.isdigit():
-                                duration_seconds = int(raw_duration) / 1000 if int(raw_duration) > 1000 else int(raw_duration)
-
-                        query = f"\"{title}\" {artist} official audio".strip()
-                        info = ydl.extract_info(f"ytsearch8:{query}", download=False)
-                        entries = info.get('entries') or []
-                        if entries:
-                            scored = []
-                            for entry in entries:
-                                scored.append((score_candidate(entry, title, artist, duration_seconds), entry))
-                            scored.sort(key=lambda item: item[0], reverse=True)
-                            best_score, entry = scored[0]
-                            url = entry.get('webpage_url') or entry.get('url')
-                            if url and not re.match(r'https?://', url):
-                                url = f"https://www.youtube.com/watch?v={url}"
-                            if url and best_score >= 30:
-                                base_filename = f"{title} - {artist}".strip(" -") or title
-                                count = used_filenames.get(base_filename, 0) + 1
-                                used_filenames[base_filename] = count
-                                final_filename = f"{base_filename} ({count})" if count > 1 else base_filename
-                                resolved.append({
-                                    'url': url,
-                                    'title': title,
-                                    'artist': artist,
-                                    'resolved_title': entry.get('title', ''),
-                                    'source': 'spotify_csv',
-                                    'filename': final_filename
-                                })
-
-                        self.root.after(0, lambda i=index, total=len(rows), found=len(resolved): self.spotify_status_label.config(
-                            text=TRANSLATIONS[lang]['status_spotify_resolving'].format(i, total, found)
-                        ))
+                for (title, artist, _), match in zip(tracks, matches):
+                    if not match or match[0] < 30:
+                        continue
+                    entry = match[1]
+                    url = ytdlp.entry_url(entry)
+                    if not url:
+                        continue
+                    base_filename = f"{title} - {artist}".strip(" -") or title
+                    count = used_filenames.get(base_filename, 0) + 1
+                    used_filenames[base_filename] = count
+                    resolved.append({
+                        'url': url,
+                        'title': title,
+                        'artist': artist,
+                        'resolved_title': entry.get('title', ''),
+                        'source': 'spotify_csv',
+                        'filename': f"{base_filename} ({count})" if count > 1 else base_filename,
+                    })
 
                 def update_ui_with_results():
                     self.spotify_song_urls.clear()
@@ -943,14 +965,15 @@ class DownloaderApp:
                     self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_spotify_loaded'].format(len(self.spotify_song_urls)))
                     self.update_quality_frame()
 
-                self.root.after(0, update_ui_with_results)
+                self.post(update_ui_with_results)
             except Exception as e:
-                self.root.after(0, lambda: self.show_result_message('error', TRANSLATIONS[lang]['error_process_url'].format(str(e))))
-                self.root.after(0, lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
+                msg = TRANSLATIONS[lang]['error_process_url'].format(str(e))
+                self.post(lambda: self.show_result_message('error', msg))
+                self.post(lambda: self.spotify_status_label.config(text=TRANSLATIONS[lang]['status_waiting_spotify']))
             finally:
-                self.root.after(0, self.hide_spinner)
+                self.post(self.hide_spinner)
 
-        Thread(target=process_csv).start()
+        Thread(target=process_csv, daemon=True).start()
 
     def remove_spotify_song(self):
         lang = self.language_var.get()
@@ -965,24 +988,8 @@ class DownloaderApp:
         self.update_quality_frame()
 
     def start_spotify_csv_download(self):
-        lang = self.language_var.get()
-        if not self.spotify_song_urls:
-            self.show_result_message('error', TRANSLATIONS[lang]['error_no_songs'])
-            return
+        start_spotify_download(self)
 
-        self.failed_videos = []
-        self.global_progress_var.set(0.0)
-        self.video_progress_var.set(0.0)
-        self.total_videos = 0
-        self.completed_videos = 0
-        self.is_paused = False
-        self.is_cancelled = False
-        self.is_playlist = False
-        self.spotify_download_button.configure(state='disabled')
-        self.spotify_pause_button.configure(state='normal')
-        self.spotify_cancel_button.configure(state='normal')
-        Thread(target=download, args=(self, self.spotify_song_urls, False)).start()
-        
     def remove_song(self):
         lang = self.language_var.get()
         selection = self.song_listbox.curselection()
@@ -1002,7 +1009,7 @@ class DownloaderApp:
         has_spotify_songs = len(self.spotify_song_urls) > 0
         has_playlist = self.playlist_url_var.get().strip()
         has_search = len(self.search_results) > 0
-    
+
         if (has_search_songs or has_songs or has_spotify_songs or has_playlist or has_search) and not self.quality_frame_visible:
             logging.debug("Packing quality_frame in audio_tab")
             self.quality_frame.pack(fill='x', pady=10, padx=10)
@@ -1019,7 +1026,7 @@ class DownloaderApp:
             self.lossless_frame_visible = False
             self.custom_norm_frame_visible = False
             self.quality_frame_visible = False
-    
+
         # Sincronizar las opciones de audio con las variables globales
         self.config.update({
             "codec": self.codec_var.get(),

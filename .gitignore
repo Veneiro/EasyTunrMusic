@@ -138,3 +138,9 @@ cython_debug/
 
 # Project files
 Música/*
+# Entorno portable creado por EasyTunrMusic.bat
+runtime/
+
+# Build del instalador
+.build-venv/
+packaging/vendor/
