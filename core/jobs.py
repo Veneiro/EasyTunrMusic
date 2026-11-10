@@ -4,6 +4,7 @@ Los callbacks se llaman desde hilos secundarios: la interfaz es responsable de
 pasarlos a su propio hilo (en tkinter, con root.after).
 """
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -12,8 +13,11 @@ from typing import Callable, List, Optional, Tuple
 from . import audio, ytdlp
 from .process import ProcessGroup, Cancelled
 from .settings import DownloadSettings
+from .utils import clean_folder_name
 
 logger = logging.getLogger(__name__)
+
+TITLE_TEMPLATE = "%(title)s.%(ext)s"
 
 # Reparto de la barra de progreso de cada canción cuando hay posprocesado.
 DOWNLOAD_SHARE = 0.8
@@ -24,6 +28,33 @@ class DownloadItem:
     url: str
     label: str = ""
     outtmpl: Optional[str] = None
+    title_hint: str = ""  # título esperado del vídeo, para detectar nombres repetidos
+
+
+def subfolder(music_folder, name, fallback):
+    folder = os.path.join(music_folder, clean_folder_name(name or fallback))
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def playlist_items(url, music_folder):
+    """Resuelve una lista de YouTube en elementos que se guardan en su propia carpeta."""
+    title, videos = ytdlp.resolve_playlist(url)
+    if not videos:
+        return title, []
+    folder = subfolder(music_folder, title, "Playlist")
+    template = os.path.join(folder, TITLE_TEMPLATE)
+    return title, [DownloadItem(u, t, template, title_hint=t) for u, t in videos]
+
+
+def spotify_items(matches, music_folder, playlist_name):
+    """Elementos para canciones de un CSV de Spotify, con el nombre 'Título - Artista'."""
+    folder = subfolder(music_folder, playlist_name, "Spotify CSV")
+    return [
+        DownloadItem(m.url, f"{m.track.title} - {m.track.artist}".strip(" -"),
+                     os.path.join(folder, f"{clean_folder_name(m.filename)}.%(ext)s"))
+        for m in matches
+    ]
 
 
 @dataclass
@@ -46,12 +77,28 @@ class DownloadJob:
     callbacks: JobCallbacks = field(default_factory=JobCallbacks)
 
     def __post_init__(self):
+        self._dedupe_names()
         self.group = ProcessGroup()
         self.failed: List[Tuple[str, str]] = []
         self.completed = 0
         self._lock = threading.Lock()
         self._resume = threading.Event()
         self._resume.set()
+
+    def _dedupe_names(self):
+        """Canciones con el mismo título en la misma carpeta se escribirían en el
+        mismo archivo a la vez: a partir de la segunda se añade " (2)", " (3)"...
+        Solo se puede saber de antemano por la etiqueta; yt-dlp pone el título real."""
+        seen = {}
+        for item in self.items:
+            template = item.outtmpl or self.default_outtmpl
+            name = (item.title_hint or item.label).strip().lower()
+            if not template.endswith(TITLE_TEMPLATE) or not name:
+                continue
+            key = (os.path.dirname(template).lower(), name)
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > 1:
+                item.outtmpl = os.path.join(os.path.dirname(template), f"%(title)s ({seen[key]}).%(ext)s")
 
     # -------------------------------------------------------------- control
     @property

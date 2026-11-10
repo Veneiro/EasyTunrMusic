@@ -84,11 +84,12 @@ def is_playlist_entry(entry):
 
 
 def resolve_playlist(url):
-    """Devuelve (título, [urls de los vídeos])."""
+    """Devuelve (título de la lista, [(url, título del vídeo)])."""
     info = extract_info(url, flat=True)
     entries = info.get("entries") or []
-    urls = [entry_url(e) for e in entries if e and (e.get("url") or e.get("webpage_url"))]
-    return info.get("title") or "", urls
+    videos = [(entry_url(e), e.get("title") or "") for e in entries
+              if e and (e.get("url") or e.get("webpage_url"))]
+    return info.get("title") or "", videos
 
 
 # ------------------------------------------------------------------ descarga

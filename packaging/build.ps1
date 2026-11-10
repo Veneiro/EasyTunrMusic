@@ -21,7 +21,6 @@ $Root      = Split-Path -Parent $PSScriptRoot
 $BuildVenv = Join-Path $Root ".build-venv"
 $Vendor    = Join-Path $PSScriptRoot "vendor\bin"
 $Dist      = Join-Path $Root "dist"
-$Work      = Join-Path $Root "build\pyinstaller"
 $AppDist   = Join-Path $Dist "EasyTunrMusic"
 
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
@@ -33,8 +32,8 @@ $Version = $Matches[1]
 Write-Host "EasyTunrMusic $Version" -ForegroundColor Green
 
 # ------------------------------------------------------------------ python
-Step "Buscando Python (CPython de Windows con tkinter)"
-$check = "import sys, sysconfig, tkinter; sys.exit(0 if sys.version_info >= (3,9) and sysconfig.get_platform().startswith('win') else 1)"
+Step "Buscando Python (version oficial de Windows)"
+$check = "import sys, sysconfig; sys.exit(0 if sys.version_info >= (3,9) and sysconfig.get_platform().startswith('win') else 1)"
 $BasePy = $null
 foreach ($cand in @(@("py", "-3"), @("python"))) {
     $exe = $cand[0]; $args0 = $cand[1..($cand.Length)]
@@ -56,7 +55,7 @@ if (-not (Test-Path $Py)) {
 }
 Step "Instalando dependencias de build"
 & $Py -m pip install --quiet --disable-pip-version-check --upgrade pip
-& $Py -m pip install --quiet --disable-pip-version-check -r (Join-Path $Root "requirements.txt") pyinstaller
+& $Py -m pip install --quiet --disable-pip-version-check -r (Join-Path $Root "requirements.txt") "flet-cli==1.1.2" pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "Fallo pip install" }
 
 # ------------------------------------------------------------------ herramientas
@@ -101,21 +100,30 @@ if ($RefreshTools -or -not (Test-Path (Join-Path $Vendor "deno.exe"))) {
 }
 Get-ChildItem $Vendor | ForEach-Object { "{0,-12} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB) }
 
-# ------------------------------------------------------------------ pyinstaller
-Step "Generando el ejecutable con PyInstaller"
+# ------------------------------------------------------------------ flet pack
+# flet pack usa PyInstaller por debajo e incluye el cliente de escritorio de Flet
+# (con el icono y el nombre de la app ya aplicados).
+Step "Generando el ejecutable con flet pack"
 if (Test-Path $AppDist) { Remove-Item $AppDist -Recurse -Force }
 $icon = Join-Path $Root "icon.ico"
+$flet = Join-Path $BuildVenv "Scripts\flet.exe"
 Push-Location $Root
 try {
-    & $Py -m PyInstaller --noconfirm --clean --windowed --onedir `
+    & $flet pack (Join-Path $Root "main.py") --yes --onedir `
         --name EasyTunrMusic `
         --icon $icon `
         --add-data "$icon;." `
-        --collect-data ttkbootstrap `
-        --distpath $Dist --workpath $Work --specpath $Work `
-        (Join-Path $Root "main.py")
-    if ($LASTEXITCODE -ne 0) { throw "Fallo PyInstaller" }
+        --add-data "$(Join-Path $Root 'assets');assets" `
+        --product-name EasyTunrMusic `
+        --file-description "EasyTunrMusic" `
+        --product-version $Version `
+        --file-version $Version `
+        --company-name Veneiro `
+        --copyright "(c) 2025 Veneiro - MIT" `
+        --distpath $Dist
+    if ($LASTEXITCODE -ne 0) { throw "Fallo flet pack" }
 } finally { Pop-Location }
+if (-not (Test-Path (Join-Path $AppDist "EasyTunrMusic.exe"))) { throw "flet pack no genero dist\EasyTunrMusic\EasyTunrMusic.exe" }
 
 Step "Copiando herramientas junto al ejecutable"
 Copy-Item -Path $Vendor -Destination (Join-Path $AppDist "bin") -Recurse -Force

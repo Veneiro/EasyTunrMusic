@@ -25,10 +25,10 @@ set "BASE_PY="
 if exist "%PY_DIR%\python.exe" set "BASE_PY=%PY_DIR%\python.exe"
 
 if not defined BASE_PY (
-    rem Probar un Python ya instalado (>=3.9 y con tkinter)
+    rem Probar un Python ya instalado (>=3.9, version oficial de Windows)
     for %%C in ("py -3" "python") do (
         if not defined BASE_PY (
-            %%~C -c "import sys, sysconfig, tkinter; sys.exit(0 if sys.version_info >= (3,9) and sysconfig.get_platform().startswith('win') else 1)" >nul 2>&1
+            %%~C -c "import sys, sysconfig; sys.exit(0 if sys.version_info >= (3,9) and sysconfig.get_platform().startswith('win') else 1)" >nul 2>&1
             if !errorlevel! == 0 (
                 for /f "delims=" %%P in ('%%~C -c "import sys; print(sys.executable)"') do set "BASE_PY=%%P"
             )
@@ -66,7 +66,7 @@ if not exist "%VENV%\Scripts\python.exe" (
 echo [2/3] Comprobando librerias...
 "%VENV%\Scripts\python.exe" -m pip install -r "%APP_DIR%requirements.txt" --quiet --disable-pip-version-check
 if errorlevel 1 (
-    "%VENV%\Scripts\python.exe" -c "import ttkbootstrap" >nul 2>&1
+    "%VENV%\Scripts\python.exe" -c "import flet" >nul 2>&1
     if errorlevel 1 goto :error_net
     echo       Sin conexion: se usan las librerias ya instaladas.
 )

@@ -1,13 +1,17 @@
-import ctypes
 import logging
-import os
 import sys
-import threading
-import tkinter as tk
+import time
 from logging.handlers import RotatingFileHandler
-from tkinter import ttk as tkttk
+
+import flet as ft
 
 from core import paths, tools
+from core.config import Config
+from ui import theme
+from ui.app import EasyTunrApp, setup_window
+from ui.i18n import I18n
+from ui.uithread import call_ui
+from ui.widgets import app_logo
 
 
 def setup_logging():
@@ -16,74 +20,69 @@ def setup_logging():
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.INFO, handlers=handlers,
                         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    logging.getLogger("flet").setLevel(logging.WARNING)
+    logging.getLogger("flet_desktop").setLevel(logging.WARNING)
 
 
-def prepare_tools(root):
-    """Si falta yt-dlp, FFmpeg o Deno, los descarga mostrando una ventana de progreso.
+def show_setup(page, config, on_ready):
+    """Pantalla de primera ejecución: descarga yt-dlp, FFmpeg y Deno si faltan."""
+    t = I18n(config.get("language"))
+    detail = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+    bar = ft.ProgressBar(value=None, width=420, bar_height=6, border_radius=3)
+    body = ft.Column(
+        [
+            app_logo(88),
+            ft.Text(t("setup_title"), size=22, weight=ft.FontWeight.W_600),
+            ft.Text(t("setup_text"), color=ft.Colors.ON_SURFACE_VARIANT),
+            bar,
+            detail,
+        ],
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        alignment=ft.MainAxisAlignment.CENTER,
+        spacing=16,
+    )
+    page.add(ft.Container(body, expand=True, alignment=ft.Alignment.CENTER))
 
-    Devuelve la lista de errores (vacía si todo fue bien).
-    """
-    if not tools.missing_tools():
-        return []
-
-    root.title("EasyTunrMusic")
-    root.geometry("420x130")
-    root.resizable(False, False)
-    frame = tk.Frame(root, padx=20, pady=20)
-    frame.pack(fill="both", expand=True)
-    label = tk.Label(frame, text="Preparando componentes (solo la primera vez)...", font=("Segoe UI", 10))
-    label.pack(anchor="w")
-    bar = tkttk.Progressbar(frame, length=380, mode="determinate", maximum=100)
-    bar.pack(pady=10)
-    detail = tk.Label(frame, text="", font=("Segoe UI", 9), fg="#666")
-    detail.pack(anchor="w")
-
-    result = {}
+    last_paint = [0.0]
 
     def on_status(name, done, total):
-        def update():
-            mb = done / 1_048_576
-            if total:
-                bar.configure(mode="determinate", value=done / total * 100)
-                detail.config(text=f"Descargando {name}: {mb:.0f} / {total / 1_048_576:.0f} MB")
-            else:
-                detail.config(text=f"Descargando {name}: {mb:.0f} MB")
-        root.after(0, update)
+        now = time.monotonic()
+        if now - last_paint[0] < 0.15 and done != total:
+            return
+        last_paint[0] = now
+        bar.value = done / total if total else None
+        detail.value = t("setup_tool", name, f"{done / 1_048_576:.0f}" + (f" / {total / 1_048_576:.0f}" if total else ""))
+        call_ui(page, page.update)
 
     def worker():
-        result["errors"] = tools.install_missing(on_status)
-        root.after(0, root.quit)
+        errors = tools.install_missing(on_status)
+        if errors:
+            body.controls[2] = ft.Text(t("setup_failed"), color=ft.Colors.ERROR, text_align=ft.TextAlign.CENTER)
+            detail.value = "\n".join(errors)
+            bar.visible = False
+            body.controls.append(ft.FilledButton(content=t("continue"), on_click=lambda e: on_ready()))
+            call_ui(page, page.update)
+        else:
+            call_ui(page, on_ready)
 
-    threading.Thread(target=worker, daemon=True).start()
-    root.mainloop()
-    frame.destroy()
-    return result.get("errors", [])
+    page.run_thread(worker)
 
 
-def main():
-    setup_logging()
-    if os.name == "nt":
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EasyTunrMusic")
+def main(page: ft.Page):
+    config = Config()
+    setup_window(page)
+    theme.apply(page, config)
 
-    root = tk.Tk()
-    root.iconbitmap(paths.resource_path("icon.ico"))
+    def start():
+        tools.update_ytdlp_in_background()  # yt-dlp se rompe a menudo cuando YouTube cambia algo
+        EasyTunrApp(page, config)
 
-    errors = prepare_tools(root)
-    if errors:
-        from tkinter import messagebox
-        messagebox.showwarning(
-            "EasyTunrMusic",
-            "No se pudieron descargar algunos componentes:\n\n" + "\n".join(errors) +
-            "\n\nRevisa tu conexión y vuelve a abrir la app.",
-        )
-
-    # yt-dlp se rompe a menudo cuando YouTube cambia algo: se actualiza solo
-    tools.update_ytdlp_in_background()
-
-    from downloader_app import DownloaderApp  # después de preparar las herramientas
-    DownloaderApp(root)
-    root.mainloop()
+    if tools.missing_tools():
+        show_setup(page, config, start)
+    else:
+        start()
 
 
 if __name__ == "__main__":
-    main()
+    setup_logging()
+    ft.run(main, assets_dir=paths.resource_path("assets"))
