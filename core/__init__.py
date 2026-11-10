@@ -4,4 +4,4 @@ Nada de este paquete importa librerías gráficas: se comunica con la UI solo me
 callbacks, así que la interfaz se puede sustituir sin tocar la descarga.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
